@@ -7,3 +7,5 @@ gateway.env
 
 config/*.env
 !config/.env.example
+
+deploy/compose/docker-compose.yaml

@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23.4-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/gateway ./cmd/gateway
 
 # Runtime stage
-FROM alpine:3.17
+FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates tzdata && \
     adduser -D -g '' appuser
@@ -23,8 +23,7 @@ WORKDIR /app
 
 # Copy the binary from builder stage
 COPY --from=builder /app/bin/gateway .
-COPY config/gateway.env /app/config/gateway.env
-COPY config/.env /app/config/.env
+
 
 # Use non-root user
 USER appuser

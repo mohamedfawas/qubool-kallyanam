@@ -12,6 +12,10 @@ import (
 func LoadConfig(configPath string, configName string) (*viper.Viper, error) {
 	v := viper.New()
 
+	// Override with environment variables
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
 	// Set defaults for config
 	v.SetConfigName(configName)
 	v.SetConfigType("env")
@@ -26,10 +30,6 @@ func LoadConfig(configPath string, configName string) (*viper.Viper, error) {
 		// If config file not found, log a warning but continue
 		fmt.Printf("Warning: Config file not found, using environment variables only\n")
 	}
-
-	// Override with environment variables
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
 
 	return v, nil
 }

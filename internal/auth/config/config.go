@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	sharedConfig "github.com/mohamedfawas/qubool-kallyanam/pkg/config"
 )
@@ -44,7 +45,13 @@ func DefaultConfig() *Config {
 func Load() (*Config, error) {
 	cfg := DefaultConfig()
 
-	v, err := sharedConfig.LoadConfig(".", "auth")
+	// Get the config path from environment variable or use the default "."
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "."
+	}
+
+	v, err := sharedConfig.LoadConfig(configPath, "auth")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
