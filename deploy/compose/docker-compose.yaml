@@ -7,20 +7,10 @@ services:
     container_name: qubool-gateway
     ports:
       - "8080:8080"
+    volumes:
+      - ../../config/gateway.yaml:/app/config/config.yaml
     environment:
-      - common.environment=development
-      - common.log_level=debug
-      - common.debug=true
-      - server.port=8080
-      - server.host=0.0.0.0
-      - gateway.request_timeout=30
-      - gateway.max_request_size=10485760
-      - gateway.enable_cors=true
-      - gateway.rate_limit_requests_per_min=60
-      - service_urls.auth_service=http://auth:8081
-      - service_urls.user_service=http://user:8082
-      - service_urls.chat_service=http://chat:8083
-      - service_urls.admin_service=http://admin:8084
+      - CONFIG_PATH=/app/config
     networks:
       - qubool-network
     depends_on:
@@ -48,14 +38,10 @@ services:
     container_name: qubool-auth
     ports:
       - "8081:8081"
+    volumes:
+      - ../../config/auth.yaml:/app/config/config.yaml
     environment:
-      - common.environment=development
-      - common.log_level=debug
-      - common.debug=true
-      - server.port=8081
-      - server.host=0.0.0.0
-      - auth.jwt_secret=development-jwt-secret-replace-in-production
-      - auth.token_lifetime=60
+      - CONFIG_PATH=/app/config
     networks:
       - qubool-network
     depends_on:
@@ -79,14 +65,10 @@ services:
     container_name: qubool-user
     ports:
       - "8082:8082"
+    volumes:
+      - ../../config/user.yaml:/app/config/config.yaml
     environment:
-      - common.environment=development
-      - common.log_level=debug
-      - common.debug=true
-      - server.port=8082
-      - server.host=0.0.0.0
-      - user.profile_photo_max_size=5242880
-      - user.default_avatar_url=/static/default-avatar.png
+      - CONFIG_PATH=/app/config
     networks:
       - qubool-network
     depends_on:
@@ -110,16 +92,10 @@ services:
     container_name: qubool-chat
     ports:
       - "8083:8083"
+    volumes:
+      - ../../config/chat.yaml:/app/config/config.yaml
     environment:
-      - common.environment=development
-      - common.log_level=debug
-      - common.debug=true
-      - server.port=8083
-      - server.host=0.0.0.0
-      - chat.max_message_length=1000
-      - chat.message_rate_limit=60
-      - chat.message_history_limit=100
-      - chat.websocket_timeout=300
+      - CONFIG_PATH=/app/config
     networks:
       - qubool-network
     depends_on:
@@ -143,15 +119,10 @@ services:
     container_name: qubool-admin
     ports:
       - "8084:8084"
+    volumes:
+      - ../../config/admin.yaml:/app/config/config.yaml
     environment:
-      - common.environment=development
-      - common.log_level=debug
-      - common.debug=true
-      - server.port=8084
-      - server.host=0.0.0.0
-      - admin.session_timeout=60
-      - admin.dashboard_cache_time=300
-      - admin.admin_email_domain=qubool.com
+      - CONFIG_PATH=/app/config
     networks:
       - qubool-network
     depends_on:

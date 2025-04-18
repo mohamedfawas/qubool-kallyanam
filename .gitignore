@@ -9,3 +9,6 @@ config/*.env
 !config/.env.example
 
 deploy/compose/docker-compose.yaml
+
+config/*.yaml
+!config/config.yaml.example
