@@ -1,0 +1,9 @@
+.env
+auth.env
+user.env
+chat.env
+admin.env
+gateway.env
+
+config/*.env
+!config/.env.example

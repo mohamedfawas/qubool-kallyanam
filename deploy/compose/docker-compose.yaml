@@ -1,0 +1,214 @@
+services:
+  # API Gateway Service - starts last as it depends on all other services
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.gateway
+    container_name: qubool-gateway
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../config/gateway.env:/app/config/gateway.env
+      - ../config/.env:/app/config/.env
+    environment:
+      - CONFIG_PATH=/app/config
+    networks:
+      - qubool-network
+    depends_on:
+      auth:
+        condition: service_healthy
+      user:
+        condition: service_healthy
+      chat:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Auth Service - depends on basic infrastructure
+  auth:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.auth
+    container_name: qubool-auth
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../config/auth.env:/app/config/auth.env
+      - ../config/.env:/app/config/.env
+    environment:
+      - CONFIG_PATH=/app/config
+    networks:
+      - qubool-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # User Service - depends on basic infrastructure
+  user:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.user
+    container_name: qubool-user
+    ports:
+      - "8082:8082"
+    volumes:
+      - ../config/user.env:/app/config/user.env
+      - ../config/.env:/app/config/.env
+    environment:
+      - CONFIG_PATH=/app/config
+    networks:
+      - qubool-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Chat Service - depends on basic infrastructure including MongoDB
+  chat:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.chat
+    container_name: qubool-chat
+    ports:
+      - "8083:8083"
+    volumes:
+      - ../config/chat.env:/app/config/chat.env
+      - ../config/.env:/app/config/.env
+    environment:
+      - CONFIG_PATH=/app/config
+    networks:
+      - qubool-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Admin Service - depends on basic infrastructure
+  admin:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.admin
+    container_name: qubool-admin
+    ports:
+      - "8084:8084"
+    volumes:
+      - ../config/admin.env:/app/config/admin.env
+      - ../config/.env:/app/config/.env
+    environment:
+      - CONFIG_PATH=/app/config
+    networks:
+      - qubool-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: qubool-postgres
+    environment:
+      - POSTGRES_USER=qubool
+      - POSTGRES_PASSWORD=qubool123
+      - POSTGRES_DB=qubool_kallyanam
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - qubool-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qubool"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:6.0
+    container_name: qubool-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=qubool
+      - MONGO_INITDB_ROOT_PASSWORD=qubool123
+      - MONGO_INITDB_DATABASE=qubool_kallyanam
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - qubool-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: qubool-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - qubool-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  qubool-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
