@@ -1,27 +1,41 @@
+# deploy/compose/docker-compose.yaml
 services:
-  # API Gateway Service - starts last as it depends on all other services
+  # API Gateway Service
   gateway:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.gateway
     container_name: qubool-gateway
     ports:
-      - "8080:8080"
+      - "${GATEWAY_PORT:-8080}:8080"
+      - "${GATEWAY_METRICS_PORT:-8090}:8090"
     volumes:
-      - ../../config/gateway.yaml:/app/config/config.yaml
+      - ../../config:/app/config
     environment:
       - CONFIG_PATH=/app/config
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - REDIS_HOST=qubool-redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=qubool-rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=${RABBITMQ_USER:-qubool}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-qubool123}
+      - OTEL_ENDPOINT=qubool-otel-collector:4317
+      - LOKI_URL=http://qubool-loki:3100/loki/api/v1/push
     networks:
       - qubool-network
     depends_on:
-      auth:
+      rabbitmq:
         condition: service_healthy
-      user:
+      redis:
         condition: service_healthy
-      chat:
-        condition: service_healthy
-      admin:
-        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      loki:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s
@@ -30,18 +44,35 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Auth Service - depends on basic infrastructure
+  # Auth Service
   auth:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.auth
     container_name: qubool-auth
     ports:
-      - "8081:8081"
+      - "${AUTH_PORT:-8081}:8081"
     volumes:
-      - ../../config/auth.yaml:/app/config/config.yaml
+      - ../../config:/app/config
     environment:
       - CONFIG_PATH=/app/config
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8081
+      - POSTGRES_HOST=qubool-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-qubool}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-qubool123}
+      - POSTGRES_DB=${POSTGRES_DB:-qubool_kallyanam}
+      - REDIS_HOST=qubool-redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=qubool-rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=${RABBITMQ_USER:-qubool}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-qubool123}
+      - OTEL_ENDPOINT=qubool-otel-collector:4317
+      - LOKI_URL=http://qubool-loki:3100/loki/api/v1/push
     networks:
       - qubool-network
     depends_on:
@@ -49,26 +80,49 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      loki:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
 
-  # User Service - depends on basic infrastructure
+  # User Service
   user:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.user
     container_name: qubool-user
     ports:
-      - "8082:8082"
+      - "${USER_PORT:-8082}:8082"
     volumes:
-      - ../../config/user.yaml:/app/config/config.yaml
+      - ../../config:/app/config
     environment:
       - CONFIG_PATH=/app/config
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8082
+      - POSTGRES_HOST=qubool-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-qubool}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-qubool123}
+      - POSTGRES_DB=${POSTGRES_DB:-qubool_kallyanam}
+      - REDIS_HOST=qubool-redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=qubool-rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=${RABBITMQ_USER:-qubool}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-qubool123}
+      - OTEL_ENDPOINT=qubool-otel-collector:4317
+      - LOKI_URL=http://qubool-loki:3100/loki/api/v1/push
     networks:
       - qubool-network
     depends_on:
@@ -76,26 +130,51 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      loki:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
 
-  # Chat Service - depends on basic infrastructure including MongoDB
+  # Chat Service
   chat:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.chat
     container_name: qubool-chat
     ports:
-      - "8083:8083"
+      - "${CHAT_PORT:-8083}:8083"
     volumes:
-      - ../../config/chat.yaml:/app/config/config.yaml
+      - ../../config:/app/config
     environment:
       - CONFIG_PATH=/app/config
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8083
+      - MONGODB_HOST=qubool-mongodb
+      - MONGODB_PORT=27017
+      - MONGODB_USER=${MONGODB_USER:-qubool}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-qubool123}
+      - MONGODB_DB=${MONGODB_DB:-qubool_kallyanam}
+      - REDIS_HOST=qubool-redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=qubool-rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=${RABBITMQ_USER:-qubool}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-qubool123}
+      - OTEL_ENDPOINT=qubool-otel-collector:4317
+      - LOKI_URL=http://qubool-loki:3100/loki/api/v1/push
     networks:
       - qubool-network
     depends_on:
@@ -103,26 +182,51 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      loki:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
 
-  # Admin Service - depends on basic infrastructure
+  # Admin Service
   admin:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.admin
     container_name: qubool-admin
     ports:
-      - "8084:8084"
+      - "${ADMIN_PORT:-8084}:8084"
     volumes:
-      - ../../config/admin.yaml:/app/config/config.yaml
+      - ../../config:/app/config
     environment:
       - CONFIG_PATH=/app/config
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8084
+      - POSTGRES_HOST=qubool-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-qubool}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-qubool123}
+      - POSTGRES_DB=${POSTGRES_DB:-qubool_kallyanam}
+      - REDIS_HOST=qubool-redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=qubool-rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=${RABBITMQ_USER:-qubool}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-qubool123}
+      - OTEL_ENDPOINT=qubool-otel-collector:4317
+      - LOKI_URL=http://qubool-loki:3100/loki/api/v1/push
     networks:
       - qubool-network
     depends_on:
@@ -130,12 +234,22 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      user:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      loki:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
 
   # PostgreSQL Database
@@ -143,17 +257,18 @@ services:
     image: postgres:15-alpine
     container_name: qubool-postgres
     environment:
-      - POSTGRES_USER=qubool
-      - POSTGRES_PASSWORD=qubool123
-      - POSTGRES_DB=qubool_kallyanam
+      - POSTGRES_USER=${POSTGRES_USER:-qubool}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-qubool123}
+      - POSTGRES_DB=${POSTGRES_DB:-qubool_kallyanam}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
     networks:
       - qubool-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U qubool"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qubool}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -165,13 +280,14 @@ services:
     image: mongo:6.0
     container_name: qubool-mongodb
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=qubool
-      - MONGO_INITDB_ROOT_PASSWORD=qubool123
-      - MONGO_INITDB_DATABASE=qubool_kallyanam
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USER:-qubool}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-qubool123}
+      - MONGO_INITDB_DATABASE=${MONGODB_DB:-qubool_kallyanam}
     ports:
-      - "27017:27017"
+      - "${MONGODB_PORT:-27017}:27017"
     volumes:
       - mongodb_data:/data/db
+      - ./mongodb/init:/docker-entrypoint-initdb.d
     networks:
       - qubool-network
     healthcheck:
@@ -187,9 +303,11 @@ services:
     image: redis:7-alpine
     container_name: qubool-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     networks:
       - qubool-network
     healthcheck:
@@ -199,11 +317,158 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # RabbitMQ Service
+  rabbitmq:
+    image: rabbitmq:3.11-management-alpine
+    container_name: qubool-rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-qubool}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-qubool123}
+      - RABBITMQ_DEFAULT_VHOST=/
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
+    networks:
+      - qubool-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: qubool-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ../../config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - qubool-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: qubool-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    networks:
+      - qubool-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Loki for log aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: qubool-loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ../../config/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - qubool-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # OpenTelemetry Collector for traces
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: qubool-otel-collector
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"  # OTLP gRPC
+      - "${OTEL_HTTP_PORT:-4318}:4318"  # OTLP HTTP
+      - "${OTEL_METRICS_PORT:-8889}:8889"  # Prometheus metrics
+    volumes:
+      - ../../config/otel-collector-config.yaml:/etc/otel/config.yaml
+    command: ["--config=/etc/otel/config.yaml"]
+    networks:
+      - qubool-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Jaeger for trace visualization
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: qubool-jaeger
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"  # Web UI
+      - "${JAEGER_COLLECTOR_PORT:-14250}:14250"  # Model used by jaeger for grpc
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - qubool-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 networks:
   qubool-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   postgres_data:
   mongodb_data:
   redis_data:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:

@@ -16,16 +16,20 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/gateway ./cmd/gateway
 # Runtime stage
 FROM alpine:latest
 
+# Install necessary packages and create non-root user
 RUN apk --no-cache add ca-certificates tzdata && \
     adduser -D -g '' appuser
 
 WORKDIR /app
 
+# Ensure config directory exists and is owned by appuser
+RUN mkdir -p /app/config && \
+    chown appuser:appuser /app/config
+
 # Copy the binary from builder stage
-COPY --from=builder /app/bin/gateway .
+COPY --from=builder /app/bin/gateway /app/gateway
 
-
-# Use non-root user
+# Switch to non-root user
 USER appuser
 
 # Define healthcheck

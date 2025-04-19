@@ -1,0 +1,314 @@
+<!-- internal/gateway/templates/dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .title }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            margin: 0;
+            color: #2c3e50;
+        }
+        .status-badge {
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            display: inline-block;
+        }
+        .status-healthy {
+            background-color: #27ae60;
+            color: white;
+        }
+        .status-degraded {
+            background-color: #f39c12;
+            color: white;
+        }
+        .status-critical {
+            background-color: #e74c3c;
+            color: white;
+        }
+        .service-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .service-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+            position: relative;
+        }
+        .service-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .service-name {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin: 0;
+        }
+        .service-details {
+            margin-bottom: 15px;
+        }
+        .service-meta {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+        .dependency-list {
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        .dependency-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+        }
+        .refresh-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .refresh-btn:hover {
+            background-color: #2980b9;
+        }
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            margin-left: 15px;
+        }
+        .timestamp {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+            margin-left: 10px;
+        }
+        .history-panel {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .history-item {
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+        }
+        .history-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Service Health Dashboard</h1>
+            <div style="display: flex; align-items: center;">
+                <button id="refreshBtn" class="refresh-btn">Refresh</button>
+                <div class="auto-refresh">
+                    <input type="checkbox" id="autoRefresh" checked>
+                    <label for="autoRefresh">Auto-refresh (30s)</label>
+                </div>
+                <span class="timestamp" id="lastUpdated"></span>
+            </div>
+        </header>
+        
+        <div id="system-status"></div>
+        
+        <div id="service-grid" class="service-grid"></div>
+        
+        <div class="history-panel">
+            <h2>Status History</h2>
+            <div id="history-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // Dashboard JavaScript
+        document.addEventListener('DOMContentLoaded', function() {
+            const refreshBtn = document.getElementById('refreshBtn');
+            const autoRefreshCheckbox = document.getElementById('autoRefresh');
+            const lastUpdatedEl = document.getElementById('lastUpdated');
+            const systemStatusEl = document.getElementById('system-status');
+            const serviceGridEl = document.getElementById('service-grid');
+            const historyListEl = document.getElementById('history-list');
+            
+            let autoRefreshInterval;
+            let lastData = null;
+            
+            // Format time
+            function formatTime(timestamp) {
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString();
+            }
+            
+            // Update dashboard with data
+            function updateDashboard(data) {
+                lastData = data;
+                
+                // Update timestamp
+                lastUpdatedEl.textContent = `Last updated: ${formatTime(new Date())}`;
+                
+                // Update system status
+                let statusClass = '';
+                switch(data.status) {
+                    case 'healthy': statusClass = 'status-healthy'; break;
+                    case 'degraded': statusClass = 'status-degraded'; break;
+                    case 'critical': statusClass = 'status-critical'; break;
+                }
+                
+                systemStatusEl.innerHTML = `
+                    <div class="status-badge ${statusClass}">
+                        System Status: ${data.status.toUpperCase()}
+                    </div>
+                `;
+                
+                // Update service grid
+                serviceGridEl.innerHTML = '';
+                
+                for (const [serviceName, serviceStatus] of Object.entries(data.services)) {
+                    const serviceStatusClass = serviceStatus.healthy ? 'status-healthy' : 'status-critical';
+                    
+                    let dependenciesHtml = '';
+                    const dependencies = data.dependencies[serviceName] || [];
+                    
+                    if (dependencies.length > 0) {
+                        dependenciesHtml = '<div class="dependency-list"><h4>Dependencies</h4>';
+                        
+                        for (const dep of dependencies) {
+                            const depStatus = serviceStatus.dependencies[dep];
+                            const depStatusClass = depStatus ? 'status-healthy' : 'status-critical';
+                            
+                            dependenciesHtml += `
+                                <div class="dependency-item">
+                                    <span>${dep}</span>
+                                    <span class="status-badge ${depStatusClass}">
+                                        ${depStatus ? 'Healthy' : 'Unhealthy'}
+                                    </span>
+                                </div>
+                            `;
+                        }
+                        
+                        dependenciesHtml += '</div>';
+                    }
+                    
+                    const serviceCard = document.createElement('div');
+                    serviceCard.className = 'service-card';
+                    serviceCard.innerHTML = `
+                        <div class="service-header">
+                            <h3 class="service-name">${serviceName}</h3>
+                            <div class="status-badge ${serviceStatusClass}">
+                                ${serviceStatus.healthy ? 'Healthy' : 'Unhealthy'}
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            <div class="service-meta">Last seen: ${formatTime(serviceStatus.last_seen)}</div>
+                        </div>
+                        ${dependenciesHtml}
+                    `;
+                    
+                    serviceGridEl.appendChild(serviceCard);
+                }
+            }
+            
+            // Fetch dashboard data
+            async function fetchDashboardData() {
+                try {
+                    const response = await fetch('/dashboard/data');
+                    const data = await response.json();
+                    updateDashboard(data);
+                } catch (error) {
+                    console.error('Error fetching dashboard data:', error);
+                }
+            }
+            
+            // Fetch history data
+            async function fetchHistoryData() {
+                try {
+                    const response = await fetch('/health/history');
+                    const data = await response.json();
+                    
+                    // Update history list
+                    historyListEl.innerHTML = '';
+                    
+                    data.forEach(item => {
+                        let statusClass = '';
+                        switch(item.status) {
+                            case 'healthy': statusClass = 'status-healthy'; break;
+                            case 'degraded': statusClass = 'status-degraded'; break;
+                            case 'critical': statusClass = 'status-critical'; break;
+                        }
+                        
+                        const historyItem = document.createElement('div');
+                        historyItem.className = 'history-item';
+                        historyItem.innerHTML = `
+                            <span>${formatTime(item.timestamp)}</span>
+                            <span class="status-badge ${statusClass}">
+                                ${item.status.toUpperCase()}
+                            </span>
+                        `;
+                        
+                        historyListEl.appendChild(historyItem);
+                    });
+                } catch (error) {
+                    console.error('Error fetching history data:', error);
+                }
+            }
+            
+            // Set up auto-refresh
+            function setupAutoRefresh() {
+                if (autoRefreshCheckbox.checked) {
+                    autoRefreshInterval = setInterval(() => {
+                        fetchDashboardData();
+                        fetchHistoryData();
+                    }, 30000); // 30 seconds
+                } else {
+                    clearInterval(autoRefreshInterval);
+                }
+            }
+            
+            // Event listeners
+            refreshBtn.addEventListener('click', () => {
+                fetchDashboardData();
+                fetchHistoryData();
+            });
+            
+            autoRefreshCheckbox.addEventListener('change', setupAutoRefresh);
+            
+            // Initial load
+            fetchDashboardData();
+            fetchHistoryData();
+            setupAutoRefresh();
+        });
+    </script>
+</body>
+</html>

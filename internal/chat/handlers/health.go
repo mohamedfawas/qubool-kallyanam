@@ -4,18 +4,24 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/db/mongodb"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/db/redis"
 	"go.uber.org/zap"
 )
 
 // HealthHandler handles health check requests for the chat service
 type HealthHandler struct {
-	logger *zap.Logger
+	logger      *zap.Logger
+	mongoClient *mongodb.Client
+	redisClient *redis.Client
 }
 
 // NewHealthHandler creates a new health check handler
-func NewHealthHandler(logger *zap.Logger) *HealthHandler {
+func NewHealthHandler(logger *zap.Logger, mongoClient *mongodb.Client, redisClient *redis.Client) *HealthHandler {
 	return &HealthHandler{
-		logger: logger,
+		logger:      logger,
+		mongoClient: mongoClient,
+		redisClient: redisClient,
 	}
 }
 
@@ -28,11 +34,36 @@ func (h *HealthHandler) Register(router *gin.Engine) {
 func (h *HealthHandler) Health(c *gin.Context) {
 	h.logger.Debug("Health check request received")
 
-	// In a more complex implementation, check MongoDB connection here
+	// Check database connections
+	mongoError := h.mongoClient.Ping(c.Request.Context())
+	redisError := h.redisClient.Ping(c.Request.Context())
 
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "ok",
+	status := "ok"
+	statusCode := http.StatusOK
+	dbStatus := "ok"
+	cacheStatus := "ok"
+
+	if mongoError != nil {
+		h.logger.Error("MongoDB health check failed", zap.Error(mongoError))
+		dbStatus = "error"
+		status = "degraded"
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	if redisError != nil {
+		h.logger.Error("Redis health check failed", zap.Error(redisError))
+		cacheStatus = "error"
+		status = "degraded"
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	c.JSON(statusCode, gin.H{
+		"status":  status,
 		"service": "chat",
 		"version": "v1.0.0",
+		"components": gin.H{
+			"database": dbStatus,
+			"cache":    cacheStatus,
+		},
 	})
 }

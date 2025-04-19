@@ -3,15 +3,17 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	sharedConfig "github.com/mohamedfawas/qubool-kallyanam/pkg/config"
 )
 
 // Config holds the configuration for the chat service
 type Config struct {
-	Common sharedConfig.CommonConfig `mapstructure:"common"`
-	Server ServerConfig              `mapstructure:"server"`
-	Chat   ChatConfig                `mapstructure:"chat"`
+	Common   sharedConfig.CommonConfig `mapstructure:"common"`
+	Server   ServerConfig              `mapstructure:"server"`
+	Chat     ChatConfig                `mapstructure:"chat"`
+	Database DatabaseConfig            `mapstructure:"database"`
 }
 
 // ServerConfig holds server-specific configuration
@@ -28,6 +30,34 @@ type ChatConfig struct {
 	WebSocketTimeout    int64 `mapstructure:"websocket_timeout"` // in seconds
 }
 
+// DatabaseConfig holds database configuration
+type DatabaseConfig struct {
+	MongoDB MongoDBConfig `mapstructure:"mongodb"`
+	Redis   RedisConfig   `mapstructure:"redis"`
+}
+
+// MongoDBConfig holds MongoDB configuration
+type MongoDBConfig struct {
+	URI      string        `mapstructure:"uri"`
+	Database string        `mapstructure:"database"`
+	Username string        `mapstructure:"username"`
+	Password string        `mapstructure:"password"`
+	MaxConns uint64        `mapstructure:"max_conns"`
+	MinConns uint64        `mapstructure:"min_conns"`
+	Timeout  time.Duration `mapstructure:"timeout"`
+}
+
+// RedisConfig holds redis configuration
+type RedisConfig struct {
+	Host     string        `mapstructure:"host"`
+	Port     int           `mapstructure:"port"`
+	Password string        `mapstructure:"password"`
+	DB       int           `mapstructure:"db"`
+	MaxConns int           `mapstructure:"max_conns"`
+	MinIdle  int           `mapstructure:"min_idle"`
+	Timeout  time.Duration `mapstructure:"timeout"`
+}
+
 // DefaultConfig returns a default configuration for the chat service
 func DefaultConfig() *Config {
 	return &Config{
@@ -41,6 +71,26 @@ func DefaultConfig() *Config {
 			MessageRateLimit:    60,
 			MessageHistoryLimit: 100,
 			WebSocketTimeout:    300, // 5 minutes
+		},
+		Database: DatabaseConfig{
+			MongoDB: MongoDBConfig{
+				URI:      "mongodb://localhost:27017/qubool_kallyanam",
+				Database: "qubool_kallyanam",
+				Username: "qubool",
+				Password: "qubool123",
+				MaxConns: 10,
+				MinConns: 5,
+				Timeout:  5 * time.Second,
+			},
+			Redis: RedisConfig{
+				Host:     "localhost",
+				Port:     6379,
+				Password: "",
+				DB:       0,
+				MaxConns: 10,
+				MinIdle:  5,
+				Timeout:  2 * time.Second,
+			},
 		},
 	}
 }

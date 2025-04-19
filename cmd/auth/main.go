@@ -14,6 +14,8 @@ import (
 
 	authConfig "github.com/mohamedfawas/qubool-kallyanam/internal/auth/config"
 	authHandlers "github.com/mohamedfawas/qubool-kallyanam/internal/auth/handlers"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/db/postgres"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/db/redis"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/log"
 )
 
@@ -38,12 +40,56 @@ func main() {
 	}
 	defer logger.Sync()
 
+	// Initialize Postgres database connection
+	pgConfig := postgres.Config{
+		Host:     cfg.Database.Postgres.Host,
+		Port:     cfg.Database.Postgres.Port,
+		Username: cfg.Database.Postgres.Username,
+		Password: cfg.Database.Postgres.Password,
+		Database: cfg.Database.Postgres.Database,
+		SSLMode:  cfg.Database.Postgres.SSLMode,
+		MaxConns: cfg.Database.Postgres.MaxConns,
+		MaxIdle:  cfg.Database.Postgres.MaxIdle,
+		Timeout:  cfg.Database.Postgres.Timeout,
+	}
+	pgClient, err := postgres.NewClient(pgConfig, "auth", logger)
+	if err != nil {
+		logger.Fatal("Failed to connect to Postgres", zap.Error(err))
+	}
+	// Ensure database is closed on exit
+	defer func() {
+		if err := pgClient.Close(); err != nil {
+			logger.Error("Error closing Postgres connection", zap.Error(err))
+		}
+	}()
+
+	// Initialize Redis client
+	redisConfig := redis.Config{
+		Host:     cfg.Database.Redis.Host,
+		Port:     cfg.Database.Redis.Port,
+		Password: cfg.Database.Redis.Password,
+		DB:       cfg.Database.Redis.DB,
+		MaxConns: cfg.Database.Redis.MaxConns,
+		MinIdle:  cfg.Database.Redis.MinIdle,
+		Timeout:  cfg.Database.Redis.Timeout,
+	}
+	redisClient, err := redis.NewClient(context.Background(), redisConfig, "auth", logger)
+	if err != nil {
+		logger.Fatal("Failed to connect to Redis", zap.Error(err))
+	}
+	// Ensure Redis client is closed on exit
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			logger.Error("Error closing Redis connection", zap.Error(err))
+		}
+	}()
+
 	// Initialize router
 	router := gin.New()
 	router.Use(gin.Recovery())
 
 	// Register handlers
-	healthHandler := authHandlers.NewHealthHandler(logger)
+	healthHandler := authHandlers.NewHealthHandler(logger, pgClient, redisClient)
 	healthHandler.Register(router)
 
 	// Create HTTP server

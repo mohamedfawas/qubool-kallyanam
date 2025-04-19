@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -47,5 +48,93 @@ func DefaultCommonConfig() CommonConfig {
 		Environment: "development",
 		LogLevel:    "info",
 		Debug:       true,
+	}
+}
+
+// RabbitMQConfig holds RabbitMQ connection configuration
+type RabbitMQConfig struct {
+	Host           string        `mapstructure:"host"`
+	Port           int           `mapstructure:"port"`
+	Username       string        `mapstructure:"username"`
+	Password       string        `mapstructure:"password"`
+	VHost          string        `mapstructure:"vhost"`
+	Reconnect      bool          `mapstructure:"reconnect"`
+	ReconnectDelay time.Duration `mapstructure:"reconnect_delay"`
+}
+
+// DefaultRabbitMQConfig returns default RabbitMQ configuration
+func DefaultRabbitMQConfig() RabbitMQConfig {
+	return RabbitMQConfig{
+		Host:           "rabbitmq",
+		Port:           5672,
+		Username:       "guest",
+		Password:       "guest",
+		VHost:          "/",
+		Reconnect:      true,
+		ReconnectDelay: 5 * time.Second,
+	}
+}
+
+// TelemetryConfig holds configuration for all telemetry components
+type TelemetryConfig struct {
+	Metrics MetricsConfig `mapstructure:"metrics"`
+	Tracing TracingConfig `mapstructure:"tracing"`
+	Logging LoggingConfig `mapstructure:"logging"`
+}
+
+// MetricsConfig holds configuration for metrics collection
+type MetricsConfig struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	ListenAddress string `mapstructure:"listen_address"`
+	MetricsPath   string `mapstructure:"metrics_path"`
+}
+
+// TracingConfig holds configuration for distributed tracing
+type TracingConfig struct {
+	Enabled    bool    `mapstructure:"enabled"`
+	Endpoint   string  `mapstructure:"endpoint"`
+	Insecure   bool    `mapstructure:"insecure"`
+	SampleRate float64 `mapstructure:"sample_rate"`
+}
+
+// LoggingConfig holds configuration for logging
+type LoggingConfig struct {
+	Debug bool       `mapstructure:"debug"`
+	Loki  LokiConfig `mapstructure:"loki"`
+}
+
+// LokiConfig holds configuration for Loki logging
+type LokiConfig struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	URL       string `mapstructure:"url"`
+	BatchSize int    `mapstructure:"batch_size"`
+	Timeout   string `mapstructure:"timeout"`
+	TenantID  string `mapstructure:"tenant_id"`
+}
+
+// DefaultTelemetryConfig returns default telemetry configuration
+func DefaultTelemetryConfig() TelemetryConfig {
+	return TelemetryConfig{
+		Metrics: MetricsConfig{
+			Enabled:       true,
+			ListenAddress: ":8090",
+			MetricsPath:   "/metrics",
+		},
+		Tracing: TracingConfig{
+			Enabled:    true,
+			Endpoint:   "otel-collector:4317",
+			Insecure:   true,
+			SampleRate: 1.0,
+		},
+		Logging: LoggingConfig{
+			Debug: false,
+			Loki: LokiConfig{
+				Enabled:   true,
+				URL:       "http://loki:3100/loki/api/v1/push",
+				BatchSize: 1024 * 1024,
+				Timeout:   "10s",
+				TenantID:  "",
+			},
+		},
 	}
 }

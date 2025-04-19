@@ -1,0 +1,115 @@
+{
+  "rabbit_version": "3.11.16",
+  "users": [
+    {
+      "name": "qubool",
+      "password_hash": "qubool123",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": "administrator"
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "qubool",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "qubool.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "gateway.ping",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "auth.ping",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "user.ping",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "chat.ping",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "admin.ping",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "qubool.events",
+      "vhost": "/",
+      "destination": "gateway.ping",
+      "destination_type": "queue",
+      "routing_key": "ping.gateway",
+      "arguments": {}
+    },
+    {
+      "source": "qubool.events",
+      "vhost": "/",
+      "destination": "auth.ping",
+      "destination_type": "queue",
+      "routing_key": "ping.auth",
+      "arguments": {}
+    },
+    {
+      "source": "qubool.events",
+      "vhost": "/",
+      "destination": "user.ping",
+      "destination_type": "queue",
+      "routing_key": "ping.user",
+      "arguments": {}
+    },
+    {
+      "source": "qubool.events",
+      "vhost": "/",
+      "destination": "chat.ping",
+      "destination_type": "queue",
+      "routing_key": "ping.chat",
+      "arguments": {}
+    },
+    {
+      "source": "qubool.events",
+      "vhost": "/",
+      "destination": "admin.ping",
+      "destination_type": "queue",
+      "routing_key": "ping.admin",
+      "arguments": {}
+    }
+  ]
+}
