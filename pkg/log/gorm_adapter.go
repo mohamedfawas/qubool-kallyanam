@@ -1,3 +1,4 @@
+// pkg/log/gorm_adapter.go
 package log
 
 import (
@@ -13,9 +14,17 @@ type GormLogAdapter struct {
 }
 
 // NewGormLogAdapter creates a new gorm log adapter
+// This maintains backward compatibility with existing code
 func NewGormLogAdapter(logger *zap.Logger) *GormLogAdapter {
 	return &GormLogAdapter{
 		logger: logger.With(zap.String("component", "gorm")),
+	}
+}
+
+// NewStructuredGormLogAdapter creates a new gorm log adapter from our structured logger
+func NewStructuredGormLogAdapter(logger *Logger) *GormLogAdapter {
+	return &GormLogAdapter{
+		logger: logger.Logger.With(zap.String("component", "gorm")),
 	}
 }
 

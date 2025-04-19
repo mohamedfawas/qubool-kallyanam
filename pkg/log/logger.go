@@ -1,27 +1,29 @@
+// pkg/log/logger.go
 package log
 
 import (
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
-// NewLogger creates a new configured zap logger
-func NewLogger(serviceName string, isDevelopment bool) (*zap.Logger, error) {
-	config := zap.NewProductionConfig()
-
-	if isDevelopment {
-		config = zap.NewDevelopmentConfig()
-		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	}
-
-	config.OutputPaths = []string{"stdout"}
-	config.EncoderConfig.TimeKey = "timestamp"
-	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-
-	logger, err := config.Build()
+// Legacy function kept for backward compatibility
+// Will be deprecated in future versions
+func NewZapLogger(serviceName string, isDevelopment bool) (*zap.Logger, error) {
+	zapLogger, err := createZapLogger(isDevelopment)
 	if err != nil {
 		return nil, err
 	}
+	return zapLogger.Named(serviceName), nil
+}
 
-	return logger.Named(serviceName), nil
+// ConvertStructured converts a structured logger to a zap logger
+func ConvertToZap(logger *Logger) *zap.Logger {
+	return logger.Logger
+}
+
+// ConvertFromZap converts a zap logger to a structured logger
+func ConvertFromZap(zapLogger *zap.Logger, serviceName string) *Logger {
+	return &Logger{
+		Logger:      zapLogger,
+		serviceName: serviceName,
+	}
 }
