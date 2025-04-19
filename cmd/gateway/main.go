@@ -1,17 +1,13 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"html/template"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
 	gatewayConfig "github.com/mohamedfawas/qubool-kallyanam/internal/gateway/config"
@@ -22,47 +18,26 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/events/rabbitmq"
 	gatewayRouter "github.com/mohamedfawas/qubool-kallyanam/pkg/gateway/router"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/middleware"
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/telemetry/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/service"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/telemetry/metrics"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/telemetry/tracing"
 )
 
+// Wrapper function that converts the specific type to interface{}
+func loadConfig() (interface{}, error) {
+	return gatewayConfig.Load()
+}
+
 func main() {
-	// Load configuration
-	cfg, err := gatewayConfig.Load()
+	// Create a new service instance
+	svc, err := service.New("gateway", loadConfig)
 	if err != nil {
-		fmt.Printf("Failed to load config: %v\n", err)
+		fmt.Printf("Failed to create gateway service: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Set Gin mode based on environment
-	if cfg.Common.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
-	// Create root context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Initialize logger with Loki integration
-	logConfig := logging.LoggerConfig{
-		ServiceName: "gateway",
-		Environment: cfg.Common.Environment,
-		Debug:       cfg.Common.Debug,
-		Loki: logging.LokiConfig{
-			Enabled:   cfg.Telemetry.Logging.Loki.Enabled,
-			URL:       cfg.Telemetry.Logging.Loki.URL,
-			BatchSize: cfg.Telemetry.Logging.Loki.BatchSize,
-			Timeout:   cfg.Telemetry.Logging.Loki.Timeout,
-			TenantID:  cfg.Telemetry.Logging.Loki.TenantID,
-		},
-	}
-	logger, err := logging.NewLogger(logConfig)
-	if err != nil {
-		fmt.Printf("Failed to create logger: %v\n", err)
-		os.Exit(1)
-	}
-	defer logger.Sync()
+	// Get the config
+	cfg := svc.Config.(*gatewayConfig.Config)
 
 	// Initialize metrics provider
 	metricsConfig := metrics.Config{
@@ -71,10 +46,12 @@ func main() {
 		MetricsPath:   cfg.Telemetry.Metrics.MetricsPath,
 		ServiceName:   "gateway",
 	}
-	metricsProvider := metrics.NewPrometheusProvider(metricsConfig, logger)
+	metricsProvider := metrics.NewPrometheusProvider(metricsConfig, svc.Logger)
 	if err := metricsProvider.Start(); err != nil {
-		logger.Fatal("Failed to start metrics provider", zap.Error(err))
+		svc.Logger.Fatal("Failed to start metrics provider", zap.Error(err))
 	}
+	// We can't use AddResource here because metricsProvider doesn't implement io.Closer
+	// Instead we'll manually stop it in a defer
 	defer metricsProvider.Stop()
 
 	// Initialize tracing provider
@@ -85,11 +62,11 @@ func main() {
 		Insecure:    cfg.Telemetry.Tracing.Insecure,
 		SampleRate:  cfg.Telemetry.Tracing.SampleRate,
 	}
-	tracingProvider := tracing.NewOpenTelemetryProvider(tracingConfig, logger)
-	if err := tracingProvider.Start(ctx); err != nil {
-		logger.Fatal("Failed to start tracing provider", zap.Error(err))
+	tracingProvider := tracing.NewOpenTelemetryProvider(tracingConfig, svc.Logger)
+	if err := tracingProvider.Start(svc.Context()); err != nil {
+		svc.Logger.Fatal("Failed to start tracing provider", zap.Error(err))
 	}
-	defer tracingProvider.Stop(ctx)
+	defer tracingProvider.Stop(svc.Context())
 
 	// Initialize Redis client
 	redisConfig := redis.Config{
@@ -101,16 +78,11 @@ func main() {
 		MinIdle:  cfg.Database.Redis.MinIdle,
 		Timeout:  cfg.Database.Redis.Timeout,
 	}
-	redisClient, err := redis.NewClient(context.Background(), redisConfig, "gateway", logger)
+	redisClient, err := redis.NewClient(svc.Context(), redisConfig, "gateway", svc.Logger)
 	if err != nil {
-		logger.Fatal("Failed to connect to Redis", zap.Error(err))
+		svc.Logger.Fatal("Failed to connect to Redis", zap.Error(err))
 	}
-	// Ensure Redis client is closed on exit
-	defer func() {
-		if err := redisClient.Close(); err != nil {
-			logger.Error("Error closing Redis connection", zap.Error(err))
-		}
-	}()
+	svc.AddResource(redisClient)
 
 	// Initialize RabbitMQ client
 	rabbitConfig := rabbitmq.Config{
@@ -122,26 +94,26 @@ func main() {
 		Reconnect:      cfg.Messaging.RabbitMQ.Reconnect,
 		ReconnectDelay: cfg.Messaging.RabbitMQ.ReconnectDelay,
 	}
-
-	rabbitClient := rabbitmq.NewClient(rabbitConfig, logger.With(zap.String("component", "rabbitmq")))
+	rabbitClient := rabbitmq.NewClient(rabbitConfig, svc.Logger.With(zap.String("component", "rabbitmq")))
 	if err := rabbitClient.Connect(); err != nil {
-		logger.Fatal("Failed to connect to RabbitMQ", zap.Error(err))
+		svc.Logger.Fatal("Failed to connect to RabbitMQ", zap.Error(err))
 	}
+	// Add RabbitMQ client as a resource if it implements io.Closer
+	// If not, we need to manually close it in a defer
 	defer rabbitClient.Close()
 
 	// Initialize ping service
 	pingService, err := pingpong.NewPingService(
 		rabbitClient,
 		"gateway",
-		logger.With(zap.String("component", "ping-service")),
+		svc.Logger.With(zap.String("component", "ping-service")),
 	)
 	if err != nil {
-		logger.Fatal("Failed to create ping service", zap.Error(err))
+		svc.Logger.Fatal("Failed to create ping service", zap.Error(err))
 	}
-
 	// Start the ping service
-	if err := pingService.Start(ctx); err != nil {
-		logger.Fatal("Failed to start ping service", zap.Error(err))
+	if err := pingService.Start(svc.Context()); err != nil {
+		svc.Logger.Fatal("Failed to start ping service", zap.Error(err))
 	}
 	defer pingService.Stop()
 
@@ -152,18 +124,18 @@ func main() {
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-svc.Context().Done():
 				return
 			case <-ticker.C:
-				if err := pingService.SendPing(ctx, "Hello from Gateway!"); err != nil {
-					logger.Error("Failed to send ping", zap.Error(err))
+				if err := pingService.SendPing(svc.Context(), "Hello from Gateway!"); err != nil {
+					svc.Logger.Error("Failed to send ping", zap.Error(err))
 				}
 			}
 		}
 	}()
 
 	// Initialize service registry
-	registry := discovery.NewServiceRegistry(logger)
+	registry := discovery.NewServiceRegistry(svc.Logger)
 
 	// Initialize HTTP client for health checks and dependency checks
 	httpClient := &http.Client{Timeout: 5 * time.Second}
@@ -187,16 +159,16 @@ func main() {
 	registry.StartHealthCheck(httpClient, refreshInterval)
 
 	// Create service router
-	serviceRouter := gatewayRouter.NewServiceRouter(registry, tracingProvider, logger)
+	serviceRouter := gatewayRouter.NewServiceRouter(registry, tracingProvider, svc.Logger)
 
 	// Initialize dependency checker
-	dependencyChecker := discovery.NewDependencyChecker(registry, logger)
+	dependencyChecker := discovery.NewDependencyChecker(registry, svc.Logger)
 
 	// Set up service dependencies based on configuration
 	for name, svcCfg := range cfg.ServiceDiscovery.Services {
 		for _, dep := range svcCfg.Dependencies {
 			if err := dependencyChecker.RegisterDependency(name, dep); err != nil {
-				logger.Warn("Failed to register dependency",
+				svc.Logger.Warn("Failed to register dependency",
 					zap.String("service", name),
 					zap.String("dependency", dep),
 					zap.Error(err))
@@ -208,53 +180,26 @@ func main() {
 	dependencyInterval, _ := time.ParseDuration("30s")
 	dependencyChecker.Start(dependencyInterval)
 
-	// Initialize router with telemetry middleware
-	router := gin.New()
-	router.Use(gin.Recovery())
-	router.Use(middleware.TelemetryMiddleware(metricsProvider, tracingProvider, logger))
+	// Use telemetry middleware
+	svc.Router.Use(middleware.TelemetryMiddleware(metricsProvider, tracingProvider, svc.Logger))
 
 	// Load templates for dashboard
 	templates := template.Must(template.ParseGlob(filepath.Join("internal", "gateway", "templates", "*.html")))
-	router.SetHTMLTemplate(templates)
+	svc.Router.SetHTMLTemplate(templates)
 
 	// Register service routes
-	serviceRouter.RegisterRoutes(router)
+	serviceRouter.RegisterRoutes(svc.Router)
 
 	// Register health handler with registry
-	healthHandler := gatewayHandlers.NewHealthHandler(logger, redisClient, registry)
-	healthHandler.Register(router)
+	healthHandler := gatewayHandlers.NewHealthHandler(svc.Logger, redisClient, registry)
+	healthHandler.Register(svc.Router)
 
-	// Create HTTP server
-	srv := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-		Handler: router,
+	// Configure server
+	svc.SetupServer(cfg.Server.Host, cfg.Server.Port)
+
+	// Run the service
+	if err := svc.Run(); err != nil {
+		svc.Logger.Fatal("Service failed", zap.Error(err))
+		os.Exit(1)
 	}
-
-	// Start server in a goroutine
-	go func() {
-		logger.Info("Starting gateway service",
-			zap.String("host", cfg.Server.Host),
-			zap.Int("port", cfg.Server.Port))
-
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to start server", zap.Error(err))
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	logger.Info("Shutting down gateway service...")
-
-	// Create a deadline for graceful shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Fatal("Server forced to shutdown", zap.Error(err))
-	}
-
-	logger.Info("Gateway service exited")
 }

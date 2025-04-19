@@ -1,44 +1,32 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
-
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
 	userConfig "github.com/mohamedfawas/qubool-kallyanam/internal/user/config"
 	userHandlers "github.com/mohamedfawas/qubool-kallyanam/internal/user/handlers"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/db/postgres"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/db/redis"
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/log"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/service"
+	"go.uber.org/zap"
 )
 
+// Wrapper function that converts the specific type to interface{}
+func loadConfig() (interface{}, error) {
+	return userConfig.Load()
+}
+
 func main() {
-	// Load configuration
-	cfg, err := userConfig.Load()
+	// Create a new service instance
+	svc, err := service.New("user", loadConfig)
 	if err != nil {
-		fmt.Printf("Failed to load config: %v\n", err)
+		fmt.Printf("Failed to create user service: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Set Gin mode based on environment
-	if cfg.Common.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
-	// Initialize logger
-	logger, err := log.NewLogger("user", cfg.Common.Debug)
-	if err != nil {
-		fmt.Printf("Failed to create logger: %v\n", err)
-		os.Exit(1)
-	}
-	defer logger.Sync()
+	// Get the config
+	cfg := svc.Config.(*userConfig.Config)
 
 	// Initialize Postgres database connection
 	pgConfig := postgres.Config{
@@ -52,16 +40,11 @@ func main() {
 		MaxIdle:  cfg.Database.Postgres.MaxIdle,
 		Timeout:  cfg.Database.Postgres.Timeout,
 	}
-	pgClient, err := postgres.NewClient(pgConfig, "user", logger)
+	pgClient, err := postgres.NewClient(pgConfig, "user", svc.Logger)
 	if err != nil {
-		logger.Fatal("Failed to connect to Postgres", zap.Error(err))
+		svc.Logger.Fatal("Failed to connect to Postgres", zap.Error(err))
 	}
-	// Ensure database is closed on exit
-	defer func() {
-		if err := pgClient.Close(); err != nil {
-			logger.Error("Error closing Postgres connection", zap.Error(err))
-		}
-	}()
+	svc.AddResource(pgClient)
 
 	// Initialize Redis client
 	redisConfig := redis.Config{
@@ -73,56 +56,22 @@ func main() {
 		MinIdle:  cfg.Database.Redis.MinIdle,
 		Timeout:  cfg.Database.Redis.Timeout,
 	}
-	redisClient, err := redis.NewClient(context.Background(), redisConfig, "user", logger)
+	redisClient, err := redis.NewClient(svc.Context(), redisConfig, "user", svc.Logger)
 	if err != nil {
-		logger.Fatal("Failed to connect to Redis", zap.Error(err))
+		svc.Logger.Fatal("Failed to connect to Redis", zap.Error(err))
 	}
-	// Ensure Redis client is closed on exit
-	defer func() {
-		if err := redisClient.Close(); err != nil {
-			logger.Error("Error closing Redis connection", zap.Error(err))
-		}
-	}()
-
-	// Initialize router
-	router := gin.New()
-	router.Use(gin.Recovery())
+	svc.AddResource(redisClient)
 
 	// Register handlers
-	healthHandler := userHandlers.NewHealthHandler(logger, pgClient, redisClient)
-	healthHandler.Register(router)
+	healthHandler := userHandlers.NewHealthHandler(svc.Logger, pgClient, redisClient)
+	healthHandler.Register(svc.Router)
 
-	// Create HTTP server
-	srv := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-		Handler: router,
+	// Configure server
+	svc.SetupServer(cfg.Server.Host, cfg.Server.Port)
+
+	// Run the service
+	if err := svc.Run(); err != nil {
+		svc.Logger.Fatal("Service failed", zap.Error(err))
+		os.Exit(1)
 	}
-
-	// Start server in a goroutine
-	go func() {
-		logger.Info("Starting user service",
-			zap.String("host", cfg.Server.Host),
-			zap.Int("port", cfg.Server.Port))
-
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to start server", zap.Error(err))
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	logger.Info("Shutting down user service...")
-
-	// Create a deadline for graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Fatal("Server forced to shutdown", zap.Error(err))
-	}
-
-	logger.Info("User service exited")
 }
