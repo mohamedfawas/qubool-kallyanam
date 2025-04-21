@@ -1,0 +1,509 @@
+.
+├── LICENSE
+├── README.md
+├── go.work                          # Workspace configuration
+├── api                              # API definitions as a separate module
+│   ├── go.mod
+│   ├── go.sum
+│   ├── proto
+│   │   ├── admin
+│   │   │   └── v1
+│   │   │       ├── admin.proto
+│   │   │       └── admin_service.proto
+│   │   ├── auth
+│   │   │   └── v1
+│   │   │       ├── auth.proto
+│   │   │       └── auth_service.proto
+│   │   ├── chat
+│   │   │   └── v1
+│   │   │       ├── chat.proto
+│   │   │       └── chat_service.proto
+│   │   ├── common
+│   │   │   └── v1
+│   │   │       ├── error.proto
+│   │   │       └── pagination.proto
+│   │   └── user
+│   │       └── v1
+│   │           ├── user.proto
+│   │           └── user_service.proto
+│   └── rest
+│       ├── openapi.yaml
+│       ├── admin
+│       │   └── v1
+│       │       └── admin.yaml
+│       ├── auth
+│       │   └── v1
+│       │       └── auth.yaml
+│       ├── chat
+│       │   └── v1
+│       │       └── chat.yaml
+│       └── user
+│           └── v1
+│               └── user.yaml
+├── services                         # Individual service modules
+│   ├── admin
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   ├── cmd
+│   │   │   └── main.go
+│   │   ├── configs
+│   │   │   ├── config.yaml
+│   │   │   └── config.dev.yaml
+│   │   ├── internal
+│   │   │   ├── config
+│   │   │   │   └── config.go
+│   │   │   ├── domain
+│   │   │   │   ├── entities
+│   │   │   │   │   └── admin.go
+│   │   │   │   ├── repositories
+│   │   │   │   │   └── admin_repository.go
+│   │   │   │   ├── services
+│   │   │   │   │   └── admin_service.go
+│   │   │   │   └── errors
+│   │   │   │       └── errors.go
+│   │   │   ├── handlers
+│   │   │   │   ├── grpc
+│   │   │   │   │   └── v1
+│   │   │   │   │       └── admin_handler.go
+│   │   │   │   ├── http
+│   │   │   │   │   └── v1
+│   │   │   │   │       └── admin_handler.go
+│   │   │   │   └── health
+│   │   │   │       └── health_handler.go
+│   │   │   ├── ports
+│   │   │   │   ├── grpc.go
+│   │   │   │   ├── http.go
+│   │   │   │   └── messaging.go
+│   │   │   ├── adapters
+│   │   │   │   ├── repository
+│   │   │   │   │   └── postgres
+│   │   │   │   │       └── admin_repository.go
+│   │   │   │   ├── messaging
+│   │   │   │   │   └── rabbitmq
+│   │   │   │   │       └── publisher.go
+│   │   │   │   └── cache
+│   │   │   │       └── redis
+│   │   │   │           └── cache.go
+│   │   │   └── server
+│   │   │       └── server.go
+│   │   └── migrations
+│   │       └── postgres
+│   │           ├── 000001_init_schema.up.sql
+│   │           └── 000001_init_schema.down.sql
+│   ├── auth
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   ├── cmd
+│   │   │   └── main.go
+│   │   ├── configs
+│   │   │   ├── config.yaml
+│   │   │   └── config.dev.yaml
+│   │   └── internal
+│   │       ├── config
+│   │       ├── domain
+│   │       ├── handlers
+│   │       ├── ports
+│   │       ├── adapters
+│   │       └── server
+│   ├── chat
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   ├── cmd
+│   │   │   └── main.go
+│   │   ├── configs
+│   │   │   ├── config.yaml
+│   │   │   └── config.dev.yaml
+│   │   └── internal
+│   │       ├── config
+│   │       ├── domain
+│   │       ├── handlers
+│   │       ├── ports
+│   │       ├── adapters
+│   │       └── server
+│   ├── gateway
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   ├── cmd
+│   │   │   └── main.go
+│   │   ├── configs
+│   │   │   ├── config.yaml
+│   │   │   └── config.dev.yaml
+│   │   └── internal
+│   │       ├── config
+│   │       │   └── config.go
+│   │       ├── handlers
+│   │       │   ├── v1
+│   │       │   │   ├── admin.go
+│   │       │   │   ├── auth.go
+│   │       │   │   ├── chat.go
+│   │       │   │   └── user.go
+│   │       │   └── health
+│   │       │       └── health_handler.go
+│   │       ├── middleware
+│   │       │   ├── auth.go
+│   │       │   ├── cors.go
+│   │       │   ├── logging.go
+│   │       │   └── ratelimit.go
+│   │       ├── clients
+│   │       │   ├── admin
+│   │       │   │   └── client.go
+│   │       │   ├── auth
+│   │       │   │   └── client.go
+│   │       │   ├── chat
+│   │       │   │   └── client.go
+│   │       │   └── user
+│   │       │       └── client.go
+│   │       └── server
+│   │           └── server.go
+│   └── user
+│       ├── go.mod
+│       ├── go.sum
+│       ├── cmd
+│       │   └── main.go
+│       ├── configs
+│       │   ├── config.yaml
+│       │   └── config.dev.yaml
+│       └── internal
+│           ├── config
+│           ├── domain
+│           ├── handlers
+│           ├── ports
+│           ├── adapters
+│           └── server
+├── pkg                              # Shared utilities as a module
+│   ├── go.mod
+│   ├── go.sum
+│   ├── auth
+│   │   ├── jwt
+│   │   │   └── jwt.go
+│   │   ├── oauth
+│   │   │   └── provider.go
+│   │   ├── permissions
+│   │   │   └── checker.go
+│   │   ├── rbac
+│   │   │   └── rbac.go
+│   │   └── totp
+│   │       └── totp.go
+│   ├── cache
+│   │   ├── interface.go
+│   │   ├── redis
+│   │   │   └── client.go
+│   │   ├── memory
+│   │   │   └── client.go
+│   │   └── distributed
+│   │       └── client.go
+│   ├── clients
+│   │   ├── http
+│   │   │   └── client.go
+│   │   ├── grpc
+│   │   │   └── client.go
+│   │   └── external
+│   │       ├── payment
+│   │       │   └── provider.go
+│   │       ├── storage
+│   │       │   └── client.go
+│   │       └── geolocation
+│   │           └── client.go
+│   ├── config
+│   │   ├── loader.go
+│   │   ├── manager.go
+│   │   └── watcher.go
+│   ├── database
+│   │   ├── interface.go
+│   │   ├── mongodb
+│   │   │   └── client.go
+│   │   ├── postgres
+│   │   │   └── client.go
+│   │   ├── redis
+│   │   │   └── client.go
+│   │   └── transactions
+│   │       └── manager.go
+│   ├── discovery
+│   │   ├── interface.go
+│   │   ├── consul
+│   │   │   └── client.go
+│   │   ├── etcd
+│   │   │   └── client.go
+│   │   └── kubernetes
+│   │       └── client.go
+│   ├── errors
+│   │   ├── codes.go
+│   │   ├── errors.go
+│   │   ├── handler.go
+│   │   └── i18n.go
+│   ├── features
+│   │   ├── interface.go
+│   │   ├── toggle
+│   │   │   └── toggle.go
+│   │   ├── abtest
+│   │   │   └── abtest.go
+│   │   ├── targeting
+│   │   │   └── targeting.go
+│   │   └── manager
+│   │       └── manager.go
+│   ├── http
+│   │   ├── middleware
+│   │   │   ├── cors.go
+│   │   │   ├── logging.go
+│   │   │   └── telemetry.go
+│   │   ├── response
+│   │   │   └── formatter.go
+│   │   ├── router.go
+│   │   └── server
+│   │       └── server.go
+│   ├── jobs
+│   │   ├── interface.go
+│   │   ├── scheduler
+│   │   │   └── scheduler.go
+│   │   ├── worker
+│   │   │   └── worker.go
+│   │   ├── queue
+│   │   │   └── queue.go
+│   │   └── handlers
+│   │       └── registry.go
+│   ├── logging
+│   │   ├── logger.go
+│   │   ├── structured.go
+│   │   └── middleware
+│   │       └── middleware.go
+│   ├── messaging
+│   │   ├── interface.go
+│   │   ├── rabbitmq
+│   │   │   ├── client.go
+│   │   │   ├── consumer.go
+│   │   │   └── publisher.go
+│   │   ├── kafka
+│   │   │   └── client.go
+│   │   └── middleware
+│   │       └── middleware.go
+│   ├── notifications
+│   │   ├── interface.go
+│   │   ├── email
+│   │   │   └── client.go
+│   │   ├── sms
+│   │   │   └── client.go
+│   │   ├── push
+│   │   │   └── client.go
+│   │   ├── templates
+│   │   │   └── manager.go
+│   │   └── scheduler
+│   │       └── scheduler.go
+│   ├── security
+│   │   ├── csrf
+│   │   │   └── protection.go
+│   │   ├── encryption
+│   │   │   └── crypto.go
+│   │   ├── sanitization
+│   │   │   └── sanitizer.go
+│   │   ├── ratelimit
+│   │   │   └── limiter.go
+│   │   └── firewall
+│   │       └── waf.go
+│   ├── storage
+│   │   ├── interface.go
+│   │   ├── cloudinary
+│   │   │   └── client.go
+│   │   ├── s3
+│   │   │   └── client.go
+│   │   └── local
+│   │       └── storage.go
+│   ├── telemetry
+│   │   ├── interface.go
+│   │   ├── metrics
+│   │   │   └── prometheus.go
+│   │   ├── tracing
+│   │   │   └── opentelemetry.go
+│   │   └── logging
+│   │       └── loki.go
+│   ├── testutils
+│   │   ├── mocks
+│   │   │   └── generator.go
+│   │   ├── fixtures
+│   │   │   └── loader.go
+│   │   ├── assertions
+│   │   │   └── assertions.go
+│   │   └── builders
+│   │       └── entity_builders.go
+│   ├── utils
+│   │   ├── crypto
+│   │   │   └── hash.go
+│   │   ├── dates
+│   │   │   └── formatter.go
+│   │   ├── pagination
+│   │   │   └── paginator.go
+│   │   ├── pointers
+│   │   │   └── helpers.go
+│   │   └── slices
+│   │       └── helpers.go
+│   └── validation
+│       ├── interface.go
+│       ├── rules
+│       │   └── rules.go
+│       ├── sanitizers
+│       │   └── sanitizer.go
+│       ├── validators
+│       │   └── validator.go
+│       └── middleware
+│           └── middleware.go
+├── tools                            # Development tools as a module
+│   ├── go.mod
+│   ├── go.sum
+│   ├── cmd
+│   │   ├── migration
+│   │   │   └── main.go
+│   │   └── codegen
+│   │       └── main.go
+│   ├── codegen
+│   │   ├── templates
+│   │   │   ├── service.tmpl
+│   │   │   └── handler.tmpl
+│   │   └── generator.go
+│   ├── migration
+│   │   └── migrator.go
+│   └── profiling
+│       └── profiler.go
+├── configs                          # Global configuration
+│   ├── environments
+│   │   ├── development
+│   │   │   ├── common.yaml
+│   │   │   └── features.yaml
+│   │   ├── staging
+│   │   │   ├── common.yaml
+│   │   │   └── features.yaml
+│   │   └── production
+│   │       ├── common.yaml
+│   │       └── features.yaml
+│   └── monitoring
+│       ├── loki-config.yaml
+│       ├── otel-collector-config.yaml
+│       └── prometheus.yml
+├── .github                          # GitHub workflows
+│   └── workflows
+│       ├── ci.yml
+│       ├── cd-development.yml
+│       ├── cd-staging.yml
+│       ├── cd-production.yml
+│       └── security-scan.yml
+├── deploy                           # Deployment configurations
+│   ├── compose
+│   │   ├── docker-compose.yaml
+│   │   ├── docker-compose.dev.yaml
+│   │   └── docker-compose.prod.yaml
+│   ├── docker
+│   │   ├── Dockerfile.base
+│   │   ├── Dockerfile.admin
+│   │   ├── Dockerfile.auth
+│   │   ├── Dockerfile.chat
+│   │   ├── Dockerfile.gateway
+│   │   └── Dockerfile.user
+│   ├── k8s
+│   │   ├── base
+│   │   │   ├── admin
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── auth
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── chat
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── gateway
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── user
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   └── shared
+│   │   │       ├── configmaps.yaml
+│   │   │       └── secrets.yaml
+│   │   └── overlays
+│   │       ├── development
+│   │       │   ├── kustomization.yaml
+│   │       │   └── patches
+│   │       ├── staging
+│   │       │   ├── kustomization.yaml
+│   │       │   └── patches
+│   │       └── production
+│   │           ├── kustomization.yaml
+│   │           └── patches
+│   │               ├── scaling.yaml
+│   │               └── resources.yaml
+│   ├── helm
+│   │   ├── charts
+│   │   │   ├── admin
+│   │   │   │   ├── Chart.yaml
+│   │   │   │   ├── values.yaml
+│   │   │   │   └── templates
+│   │   │   ├── auth
+│   │   │   ├── chat
+│   │   │   ├── gateway
+│   │   │   └── user
+│   │   └── matrimonial
+│   │       ├── Chart.yaml
+│   │       ├── values.yaml
+│   │       ├── values-production.yaml
+│   │       └── templates
+│   ├── terraform
+│   │   ├── environments
+│   │   │   ├── development
+│   │   │   │   ├── main.tf
+│   │   │   │   └── variables.tf
+│   │   │   ├── staging
+│   │   │   └── production
+│   │   └── modules
+│   │       ├── database
+│   │       ├── kubernetes
+│   │       ├── messaging
+│   │       ├── cache
+│   │       └── networking
+│   └── argocd
+│       ├── applications
+│       │   ├── admin.yaml
+│       │   ├── auth.yaml
+│       │   ├── chat.yaml
+│       │   ├── gateway.yaml
+│       │   └── user.yaml
+│       └── projects
+│           └── matrimonial.yaml
+├── docs                             # Documentation
+│   ├── api
+│   │   ├── overview.md
+│   │   └── authentication.md
+│   ├── architecture
+│   │   ├── diagrams
+│   │   │   ├── component-diagram.png
+│   │   │   └── data-flow.png
+│   │   └── decisions
+│   │       └── adr-001-service-boundaries.md
+│   ├── development
+│   │   ├── setup.md
+│   │   ├── contributing.md
+│   │   └── style-guide.md
+│   ├── deployment
+│   │   ├── kubernetes.md
+│   │   ├── ci-cd-pipeline.md
+│   │   └── scaling-strategy.md
+│   └── operations
+│       ├── monitoring.md
+│       └── troubleshooting.md
+├── scripts                          # Scripts
+│   ├── dev
+│   │   ├── setup.sh
+│   │   ├── generate-proto.sh
+│   │   └── seed-data.sh
+│   └── ci-cd
+│       ├── build-images.sh
+│       ├── push-images.sh
+│       └── deploy.sh
+└── test                             # Global tests
+    ├── e2e
+    │   ├── api_test.go
+    │   └── flows_test.go
+    ├── integration
+    │   └── services_test.go
+    └── load
+        └── k6
+            ├── scenarios
+            │   ├── auth_flow.js
+            │   └── user_profile.js
+            └── config.js
