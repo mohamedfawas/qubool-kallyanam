@@ -3,14 +3,15 @@ package mongodb
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
-	"qubool-kallyanam/pkg/database"
-	"qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/database"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 )
 
 // Config extends the common database config with MongoDB specific options
@@ -34,6 +35,26 @@ type Client struct {
 
 // NewClient creates a new MongoDB client
 func NewClient(config Config, logger logging.Logger) *Client {
+	// Set default values if not specified
+	if config.MaxPoolSize <= 0 {
+		config.MaxPoolSize = 100 // Default max pool size
+	}
+	if config.MinPoolSize <= 0 {
+		config.MinPoolSize = 10 // Default min pool size
+	}
+	if config.ConnectTimeout <= 0 {
+		config.ConnectTimeout = 10 * time.Second // Default connect timeout
+	}
+	if config.ServerSelectionTime <= 0 {
+		config.ServerSelectionTime = 5 * time.Second // Default server selection timeout
+	}
+	if config.Port <= 0 {
+		config.Port = 27017 // Default MongoDB port
+	}
+	if config.AuthSource == "" {
+		config.AuthSource = "admin" // Default auth source
+	}
+
 	if logger == nil {
 		logger = logging.Get().Named("mongodb")
 	}
@@ -92,8 +113,11 @@ func (c *Client) Connect(ctx context.Context) error {
 }
 
 // Close closes the MongoDB connection
-func (c *Client) Close(ctx context.Context) error {
+func (c *Client) Close() error {
 	if c.client != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
 		if err := c.client.Disconnect(ctx); err != nil {
 			return fmt.Errorf("failed to disconnect from mongodb: %w", err)
 		}
@@ -140,6 +164,7 @@ func (c *Client) buildConnectionString() string {
 		auth = fmt.Sprintf("%s:%s@", c.config.Username, c.config.Password)
 	}
 
+	// Build the URI with proper formatting
 	uri := fmt.Sprintf("mongodb://%s%s:%d/%s",
 		auth,
 		c.config.Host,
@@ -147,25 +172,25 @@ func (c *Client) buildConnectionString() string {
 		c.config.Database,
 	)
 
-	// Add options
-	hasOptions := false
-	options := ""
+	// Add options as query parameters
+	params := make([]string, 0)
 
 	if c.config.ReplicaSet != "" {
-		options += fmt.Sprintf("replicaSet=%s", c.config.ReplicaSet)
-		hasOptions = true
+		params = append(params, fmt.Sprintf("replicaSet=%s", c.config.ReplicaSet))
 	}
 
 	if c.config.AuthSource != "" {
-		if hasOptions {
-			options += "&"
-		}
-		options += fmt.Sprintf("authSource=%s", c.config.AuthSource)
-		hasOptions = true
+		params = append(params, fmt.Sprintf("authSource=%s", c.config.AuthSource))
 	}
 
-	if hasOptions {
-		uri += "?" + options
+	// Other common MongoDB options
+	if c.config.SSLMode != "" {
+		params = append(params, fmt.Sprintf("ssl=%t", c.config.SSLMode == "enable"))
+	}
+
+	// Add parameters to URI if any exist
+	if len(params) > 0 {
+		uri += "?" + strings.Join(params, "&")
 	}
 
 	return uri

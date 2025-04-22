@@ -7,8 +7,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"qubool-kallyanam/pkg/database"
-	"qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/database"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 )
 
 // Config extends the common database config with Redis specific options
@@ -34,6 +34,29 @@ type Client struct {
 
 // NewClient creates a new Redis client
 func NewClient(config Config, logger logging.Logger) *Client {
+	// Set default values if not specified
+	if config.PoolSize <= 0 {
+		config.PoolSize = 10 // Default pool size
+	}
+	if config.MinIdleConns <= 0 {
+		config.MinIdleConns = 5 // Default min idle connections
+	}
+	if config.ConnTimeout <= 0 {
+		config.ConnTimeout = 5 * time.Second // Default connection timeout
+	}
+	if config.ReadTimeout <= 0 {
+		config.ReadTimeout = 3 * time.Second // Default read timeout
+	}
+	if config.WriteTimeout <= 0 {
+		config.WriteTimeout = 3 * time.Second // Default write timeout
+	}
+	if config.MaxRetries < 0 {
+		config.MaxRetries = 3 // Default max retries
+	}
+	if config.Port <= 0 {
+		config.Port = 6379 // Default Redis port
+	}
+
 	if logger == nil {
 		logger = logging.Get().Named("redis")
 	}
@@ -104,7 +127,7 @@ func (c *Client) Connect(ctx context.Context) error {
 }
 
 // Close closes the Redis connection
-func (c *Client) Close(ctx context.Context) error {
+func (c *Client) Close() error {
 	if c.client != nil {
 		if err := c.client.Close(); err != nil {
 			return fmt.Errorf("failed to close redis connection: %w", err)
@@ -133,4 +156,32 @@ func (c *Client) Stats() interface{} {
 // GetClient returns the underlying Redis client
 func (c *Client) GetClient() *redis.Client {
 	return c.client
+}
+
+// ExecutePipeline executes commands in a Redis pipeline
+func (c *Client) ExecutePipeline(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("redis client not connected")
+	}
+
+	pipe := c.client.Pipeline()
+	if err := fn(pipe); err != nil {
+		return nil, err
+	}
+
+	return pipe.Exec(ctx)
+}
+
+// ExecuteTransaction executes commands in a Redis transaction (MULTI/EXEC)
+func (c *Client) ExecuteTransaction(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("redis client not connected")
+	}
+
+	tx := c.client.TxPipeline()
+	if err := fn(tx); err != nil {
+		return nil, err
+	}
+
+	return tx.Exec(ctx)
 }

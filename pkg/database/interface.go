@@ -26,7 +26,7 @@ type Client interface {
 	Connect(ctx context.Context) error
 
 	// Close closes all connections to the database
-	Close(ctx context.Context) error
+	Close() error
 
 	// Ping checks if the database is accessible
 	Ping(ctx context.Context) error
