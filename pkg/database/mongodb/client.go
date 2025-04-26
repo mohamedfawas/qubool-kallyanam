@@ -3,6 +3,8 @@ package mongodb
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +69,21 @@ func NewClient(config Config, logger logging.Logger) *Client {
 
 // Connect establishes a connection to MongoDB
 func (c *Client) Connect(ctx context.Context) error {
+	fmt.Printf("DEBUG: MongoDB Connection - Host: '%s', Port: %d, Database: '%s'\n",
+		c.config.Host, c.config.Port, c.config.Database)
+
+	// Add this to parse environment variables directly
+	if host := os.Getenv("MONGODB_HOST"); host != "" {
+		c.config.Host = host
+		fmt.Printf("DEBUG: Using MONGODB_HOST from env: %s\n", host)
+	}
+	if portStr := os.Getenv("MONGODB_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			c.config.Port = port
+			fmt.Printf("DEBUG: Using MONGODB_PORT from env: %d\n", port)
+		}
+	}
+
 	uri := c.buildConnectionString()
 
 	// Setup client options

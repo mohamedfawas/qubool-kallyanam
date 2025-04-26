@@ -1,0 +1,33 @@
+# Build stage
+FROM golang:1.23.4-alpine AS builder
+
+WORKDIR /app
+
+# Copy only what's needed for this service
+COPY pkg/ /app/pkg/
+COPY services/admin/ /app/services/admin/
+
+# Add a replace directive to find the pkg module locally
+RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/admin/go.mod
+
+# Build without using workspace
+RUN cd /app/services/admin && \
+    go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -o /app/admin-service ./cmd/main.go
+
+# Runtime stage
+FROM alpine:latest
+WORKDIR /app
+RUN apk --no-cache add ca-certificates tzdata wget && update-ca-certificates
+COPY --from=builder /app/admin-service .
+COPY --from=builder /app/services/admin/configs/config.yaml /app/configs/config.yaml
+RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
+USER appuser
+EXPOSE 50054
+# Environment variables for database connections
+ENV POSTGRES_HOST=postgres \
+    POSTGRES_PORT=5432 \
+    POSTGRES_USER=postgres \
+    POSTGRES_PASSWORD=password \
+    POSTGRES_DB=admin
+CMD ["./admin-service", "--config=configs/config.yaml"]

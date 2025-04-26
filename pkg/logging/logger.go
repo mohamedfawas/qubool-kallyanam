@@ -1,3 +1,4 @@
+// logger.go
 package logging
 
 import (
@@ -11,15 +12,13 @@ import (
 // Level represents a logging level
 type Level string
 
-// Log levels
+// Available log levels
 const (
-	DebugLevel  Level = "debug"
-	InfoLevel   Level = "info"
-	WarnLevel   Level = "warn"
-	ErrorLevel  Level = "error"
-	DPanicLevel Level = "dpanic"
-	PanicLevel  Level = "panic"
-	FatalLevel  Level = "fatal"
+	DebugLevel Level = "debug"
+	InfoLevel  Level = "info"
+	WarnLevel  Level = "warn"
+	ErrorLevel Level = "error"
+	FatalLevel Level = "fatal"
 )
 
 // Config holds logger configuration
@@ -49,60 +48,50 @@ func DefaultConfig() Config {
 	}
 }
 
-// Logger is the interface for all logging operations
+// Logger interface provides logging methods
 type Logger interface {
 	Debug(msg string, fields ...Field)
 	Info(msg string, fields ...Field)
 	Warn(msg string, fields ...Field)
 	Error(msg string, fields ...Field)
 	Fatal(msg string, fields ...Field)
-
-	// WithContext creates a logger with context values
 	WithContext(ctx context.Context) Logger
-
-	// With creates a new logger with attached fields
 	With(fields ...Field) Logger
-
-	// Named creates a new logger with a name prefix
 	Named(name string) Logger
-
-	// Sync flushes any buffered log entries
 	Sync() error
 }
 
 // Field represents a structured log field
 type Field = zapcore.Field
 
-// logger implements the Logger interface using zap
-type logger struct {
-	zap *zap.Logger
-}
-
-// global instance
-var globalLogger *logger
+// Global logger instance
+var globalLogger *zapLogger
 
 // Initialize sets up the global logger with the provided configuration
 func Initialize(cfg Config) error {
-	zapLogger, err := newZapLogger(cfg)
+	zapLog, err := newZapLogger(cfg)
 	if err != nil {
 		return err
 	}
 
-	globalLogger = &logger{zap: zapLogger}
+	globalLogger = &zapLogger{zap: zapLog}
 	return nil
 }
 
-// Get returns the global logger
+// Get returns the global logger, initializing with defaults if needed
 func Get() Logger {
 	if globalLogger == nil {
-		// Auto-initialize with defaults if not done already
-		cfg := DefaultConfig()
-		_ = Initialize(cfg)
+		_ = Initialize(DefaultConfig())
 	}
 	return globalLogger
 }
 
-// newZapLogger creates a new zap.Logger with the given config
+// zapLogger implements the Logger interface using zap
+type zapLogger struct {
+	zap *zap.Logger
+}
+
+// Create a new zap.Logger with the given config
 func newZapLogger(cfg Config) (*zap.Logger, error) {
 	zapCfg := zap.NewProductionConfig()
 
@@ -110,75 +99,63 @@ func newZapLogger(cfg Config) (*zap.Logger, error) {
 		zapCfg = zap.NewDevelopmentConfig()
 	}
 
-	// Configure level
+	// Set log level
+	zapLevel := zapcore.InfoLevel
 	switch cfg.Level {
 	case DebugLevel:
-		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		zapLevel = zapcore.DebugLevel
 	case InfoLevel:
-		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+		zapLevel = zapcore.InfoLevel
 	case WarnLevel:
-		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.WarnLevel)
+		zapLevel = zapcore.WarnLevel
 	case ErrorLevel:
-		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.ErrorLevel)
-	case DPanicLevel:
-		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.DPanicLevel)
-	case PanicLevel:
-		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.PanicLevel)
+		zapLevel = zapcore.ErrorLevel
 	case FatalLevel:
-		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.FatalLevel)
+		zapLevel = zapcore.FatalLevel
 	}
+	zapCfg.Level = zap.NewAtomicLevelAt(zapLevel)
 
-	// Configure encoding
+	// Set encoding
 	zapCfg.Encoding = cfg.Encoding
 
-	// Configure output paths
+	// Set output paths
 	if len(cfg.OutputPaths) > 0 {
 		zapCfg.OutputPaths = cfg.OutputPaths
 	}
 
 	// Add default fields
-	fields := []zap.Option{
+	logger, err := zapCfg.Build(
 		zap.Fields(
 			zap.String("service", cfg.ServiceName),
 			zap.String("instance", cfg.InstanceID),
 		),
-	}
+	)
 
-	logger, err := zapCfg.Build(fields...)
-	if err != nil {
-		return nil, err
-	}
-
-	return logger, nil
+	return logger, err
 }
 
-// Debug logs a debug message
-func (l *logger) Debug(msg string, fields ...Field) {
+// Log methods implementation
+func (l *zapLogger) Debug(msg string, fields ...Field) {
 	l.zap.Debug(msg, fields...)
 }
 
-// Info logs an info message
-func (l *logger) Info(msg string, fields ...Field) {
+func (l *zapLogger) Info(msg string, fields ...Field) {
 	l.zap.Info(msg, fields...)
 }
 
-// Warn logs a warning message
-func (l *logger) Warn(msg string, fields ...Field) {
+func (l *zapLogger) Warn(msg string, fields ...Field) {
 	l.zap.Warn(msg, fields...)
 }
 
-// Error logs an error message
-func (l *logger) Error(msg string, fields ...Field) {
+func (l *zapLogger) Error(msg string, fields ...Field) {
 	l.zap.Error(msg, fields...)
 }
 
-// Fatal logs a fatal message and then calls os.Exit(1)
-func (l *logger) Fatal(msg string, fields ...Field) {
+func (l *zapLogger) Fatal(msg string, fields ...Field) {
 	l.zap.Fatal(msg, fields...)
 }
 
-// WithContext creates a new logger with context values
-func (l *logger) WithContext(ctx context.Context) Logger {
+func (l *zapLogger) WithContext(ctx context.Context) Logger {
 	if ctx == nil {
 		return l
 	}
@@ -188,20 +165,17 @@ func (l *logger) WithContext(ctx context.Context) Logger {
 		return l
 	}
 
-	return &logger{zap: l.zap.With(fields...)}
+	return &zapLogger{zap: l.zap.With(fields...)}
 }
 
-// With creates a new logger with attached fields
-func (l *logger) With(fields ...Field) Logger {
-	return &logger{zap: l.zap.With(fields...)}
+func (l *zapLogger) With(fields ...Field) Logger {
+	return &zapLogger{zap: l.zap.With(fields...)}
 }
 
-// Named creates a new logger with a name prefix
-func (l *logger) Named(name string) Logger {
-	return &logger{zap: l.zap.Named(name)}
+func (l *zapLogger) Named(name string) Logger {
+	return &zapLogger{zap: l.zap.Named(name)}
 }
 
-// Sync flushes any buffered log entries
-func (l *logger) Sync() error {
+func (l *zapLogger) Sync() error {
 	return l.zap.Sync()
 }

@@ -1,0 +1,37 @@
+# Build stage
+FROM golang:1.23.4-alpine AS builder
+
+WORKDIR /app
+
+# Copy only what's needed for this service
+COPY pkg/ /app/pkg/
+COPY services/user/ /app/services/user/
+
+# Add a replace directive to find the pkg module locally
+RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/user/go.mod
+
+# Build the user service
+RUN cd /app/services/user && \
+    go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -o /app/user-service ./cmd
+
+# Runtime stage
+FROM alpine:latest
+WORKDIR /app
+RUN apk --no-cache add ca-certificates tzdata wget && update-ca-certificates
+COPY --from=builder /app/user-service .
+COPY --from=builder /app/services/user/configs/config.yaml /app/configs/config.yaml
+RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
+USER appuser
+EXPOSE 50051
+ENV POSTGRES_HOST=postgres \
+    POSTGRES_PORT=5432 \
+    POSTGRES_USER=postgres \
+    POSTGRES_PASSWORD=password \
+    POSTGRES_DB=users \
+    REDIS_HOST=redis \
+    REDIS_PORT=6379 \
+    MONGODB_HOST=mongodb \
+    MONGODB_PORT=27017 \
+    MONGODB_DATABASE=users
+CMD ["./user-service", "--config=configs/config.yaml"]

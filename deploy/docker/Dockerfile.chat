@@ -1,0 +1,33 @@
+# Build stage
+FROM golang:1.23.4-alpine AS builder
+
+WORKDIR /app
+
+# Copy only what's needed for this service
+COPY pkg/ /app/pkg/
+COPY services/chat/ /app/services/chat/
+
+# Add a replace directive to find the pkg module locally
+RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/chat/go.mod
+
+
+# Debug - print contents of config file
+RUN cat /app/services/chat/configs/config.yaml
+
+# Build without using workspace
+RUN cd /app/services/chat && \
+    go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -o /app/chat-service ./cmd/main.go
+
+# Runtime stage
+FROM alpine:latest
+WORKDIR /app
+RUN apk --no-cache add ca-certificates tzdata wget && update-ca-certificates
+COPY --from=builder /app/chat-service .
+COPY --from=builder /app/services/chat/configs/config.yaml /app/configs/config.yaml
+RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
+USER appuser
+EXPOSE 50053
+ENV MONGODB_HOST=mongodb \
+    MONGODB_PORT=27017
+CMD ["./chat-service", "--config=configs/config.yaml"]

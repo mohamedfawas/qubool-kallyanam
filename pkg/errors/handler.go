@@ -8,12 +8,12 @@ import (
 
 // ErrorResponse represents the structure of error responses
 type ErrorResponse struct {
-	Code    string                 `json:"code"`
-	Message string                 `json:"message"`
-	Details map[string]interface{} `json:"details,omitempty"`
+	Code    string                 `json:"code"`              // Error code
+	Message string                 `json:"message"`           // Error message
+	Details map[string]interface{} `json:"details,omitempty"` // Additional error details
 }
 
-// Handler is an error handler that can process and format errors
+// Handler processes application errors
 type Handler struct {
 	debug bool
 }
@@ -25,7 +25,7 @@ func NewHandler(debug bool) *Handler {
 	}
 }
 
-// FormatError formats an error into a structured error response
+// FormatError formats an error into a structured response
 func (h *Handler) FormatError(err error) *ErrorResponse {
 	appErr := FromError(err)
 	if appErr == nil {
@@ -37,9 +37,9 @@ func (h *Handler) FormatError(err error) *ErrorResponse {
 		details[k] = v
 	}
 
-	// In debug mode, add stack trace or cause information
-	if h.debug && appErr.cause != nil {
-		details["cause"] = appErr.cause.Error()
+	// In debug mode, add cause information
+	if h.debug && appErr.err != nil {
+		details["cause"] = appErr.err.Error()
 	}
 
 	return &ErrorResponse{
@@ -57,13 +57,13 @@ func (h *Handler) WriteHTTPError(w http.ResponseWriter, err error) {
 	}
 
 	response := h.FormatError(err)
-	statusCode := appErr.HTTPStatusCode()
+	statusCode := appErr.code.HTTPStatusCode()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		// If we can't encode the error, fall back to a simple error message
+		// Fallback if encoding fails
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, `{"code":"INTERNAL","message":"Failed to encode error response"}`)
 	}
@@ -83,12 +83,12 @@ func (h *Handler) LogError(err error) map[string]interface{} {
 
 	// Include error details in logs
 	for k, v := range appErr.details {
-		logEntry[fmt.Sprintf("error_detail_%s", k)] = v
+		logEntry[fmt.Sprintf("detail_%s", k)] = v
 	}
 
 	// Always log the cause in logs
-	if appErr.cause != nil {
-		logEntry["error_cause"] = appErr.cause.Error()
+	if appErr.err != nil {
+		logEntry["error_cause"] = appErr.err.Error()
 	}
 
 	return logEntry

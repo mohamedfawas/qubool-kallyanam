@@ -1,0 +1,40 @@
+# Build stage
+FROM golang:1.23.4-alpine AS builder
+
+WORKDIR /app
+
+# Copy only what's needed for this service
+COPY pkg/ /app/pkg/
+COPY services/gateway/ /app/services/gateway/
+
+# Add a replace directive to find the pkg module locally
+RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/gateway/go.mod
+
+# Build without using workspace
+RUN cd /app/services/gateway && \
+    go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -o /app/gateway-service ./cmd/main.go
+
+# Runtime stage
+FROM alpine:latest
+WORKDIR /app
+RUN apk --no-cache add ca-certificates tzdata wget jq && update-ca-certificates
+
+# Create simpler health check script
+RUN echo '#!/bin/sh\n\
+# Simple health check that only checks if the service is running\n\
+wget -q -O - http://localhost:8080/ping >/dev/null 2>&1\n\
+exit $?' > /app/healthcheck.sh && chmod +x /app/healthcheck.sh
+
+COPY --from=builder /app/gateway-service .
+COPY --from=builder /app/services/gateway/configs/config.yaml /app/configs/config.yaml
+RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
+USER appuser
+EXPOSE 8080
+# Environment variables for service discovery
+ENV SERVICES_USER=user-service:50051 \
+    SERVICES_AUTH=auth-service:50052 \
+    SERVICES_CHAT=chat-service:50053 \
+    SERVICES_ADMIN=admin-service:50054 \
+    LOG_LEVEL=debug
+CMD ["./gateway-service", "--config=configs/config.yaml"]

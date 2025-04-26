@@ -1,0 +1,9 @@
+# configs/environments/development/gateway.yaml
+server:
+  port: 8080
+  timeout: 30s
+  
+services:
+  user: "user-service:50051"
+  auth: "auth-service:50052"
+  chat: "chat-service:50053"

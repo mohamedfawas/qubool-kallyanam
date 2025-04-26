@@ -1,0 +1,35 @@
+# services/user/configs/config.yaml
+server:
+  host: "0.0.0.0"
+  port: 50051
+  timeout_seconds: 30
+
+postgres:
+  host: "postgres"
+  port: 5432
+  username: "postgres"
+  password: "password"
+  database: "users"
+  ssl_mode: "disable"
+  max_open_conns: 10
+  max_idle_conns: 5
+  
+redis:
+  host: "redis"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+  
+mongodb:
+  uri: "mongodb://mongodb:27017"
+  database: "users"
+  timeout_seconds: 10
+  
+logging:
+  level: debug
+  development: true
+  encoding: console
+  output_paths:
+    - stdout
+  service_name: user-service

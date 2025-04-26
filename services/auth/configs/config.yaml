@@ -1,0 +1,45 @@
+# services/auth/configs/config.yaml
+service:
+  name: auth-service
+  environment: development
+  version: "0.1.0"
+
+server:
+  host: "0.0.0.0"
+  port: 50052
+  timeout:
+    read: 5s
+    write: 10s
+    idle: 120s
+    shutdown: 15s
+
+postgres:
+  host: "postgres"
+  port: 5432
+  username: "postgres"
+  password: "password"
+  database: "auth"
+  ssl_mode: "disable"
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_timeout: 5s
+  query_timeout: 30s
+
+redis:
+  host: "redis"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+  min_idle_conns: 5
+  conn_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+
+logging:
+  level: debug
+  development: true
+  encoding: console
+  output_paths:
+    - stdout
+  service_name: auth-service

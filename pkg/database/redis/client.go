@@ -3,6 +3,8 @@ package redis
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -69,59 +71,60 @@ func NewClient(config Config, logger logging.Logger) *Client {
 
 // Connect establishes a connection to Redis
 func (c *Client) Connect(ctx context.Context) error {
-	opts := &redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
-		Password: c.config.Password,
-		DB:       c.config.DB,
+	// Check for environment variables first - industry standard approach
+	host := c.config.Host
+	if envHost := os.Getenv("REDIS_HOST"); envHost != "" {
+		host = envHost
+		c.logger.Debug("Using REDIS_HOST from env", logging.String("host", host))
 	}
 
-	// Configure connection pool
-	if c.config.PoolSize > 0 {
-		opts.PoolSize = c.config.PoolSize
-	}
-	if c.config.MinIdleConns > 0 {
-		opts.MinIdleConns = c.config.MinIdleConns
-	}
-	if c.config.PoolTimeout > 0 {
-		opts.PoolTimeout = c.config.PoolTimeout
+	port := c.config.Port
+	if envPort := os.Getenv("REDIS_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
+			port = p
+			c.logger.Debug("Using REDIS_PORT from env", logging.Int("port", port))
+		}
 	}
 
-	// Configure timeouts
-	if c.config.ConnTimeout > 0 {
-		opts.DialTimeout = c.config.ConnTimeout
-	}
-	if c.config.ReadTimeout > 0 {
-		opts.ReadTimeout = c.config.ReadTimeout
-	}
-	if c.config.WriteTimeout > 0 {
-		opts.WriteTimeout = c.config.WriteTimeout
+	password := c.config.Password
+	if envPass := os.Getenv("REDIS_PASSWORD"); envPass != "" {
+		password = envPass
+		c.logger.Debug("Using REDIS_PASSWORD from env")
 	}
 
-	// Configure retries
-	if c.config.MaxRetries > 0 {
-		opts.MaxRetries = c.config.MaxRetries
+	db := c.config.DB
+	if envDB := os.Getenv("REDIS_DB"); envDB != "" {
+		if d, err := strconv.Atoi(envDB); err == nil {
+			db = d
+			c.logger.Debug("Using REDIS_DB from env", logging.Int("db", db))
+		}
 	}
-	if c.config.MinRetryBackoff > 0 {
-		opts.MinRetryBackoff = c.config.MinRetryBackoff
-	}
-	if c.config.MaxRetryBackoff > 0 {
-		opts.MaxRetryBackoff = c.config.MaxRetryBackoff
+
+	// Build Redis options
+	opt := &redis.Options{
+		Addr:         fmt.Sprintf("%s:%d", host, port),
+		Password:     password,
+		DB:           db,
+		PoolSize:     c.config.PoolSize,
+		MinIdleConns: c.config.MinIdleConns,
+		DialTimeout:  c.config.ConnTimeout,
+		ReadTimeout:  c.config.ReadTimeout,
+		WriteTimeout: c.config.WriteTimeout,
 	}
 
 	// Create client
-	client := redis.NewClient(opts)
+	c.client = redis.NewClient(opt)
 
-	// Verify connection
-	if err := client.Ping(ctx).Err(); err != nil {
+	c.logger.Info("Connected to Redis",
+		logging.String("host", host),
+		logging.Int("port", port),
+		logging.Int("db", db),
+	)
+
+	// Test connection
+	if err := c.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to ping redis: %w", err)
 	}
-
-	c.client = client
-	c.logger.Info("Connected to Redis",
-		logging.String("host", c.config.Host),
-		logging.Int("port", c.config.Port),
-		logging.Int("db", c.config.DB),
-	)
 
 	return nil
 }

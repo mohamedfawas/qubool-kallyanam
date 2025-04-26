@@ -1,3 +1,4 @@
+// middleware/middleware.go
 package middleware
 
 import (
@@ -16,13 +17,12 @@ import (
 const (
 	requestIDHeader     = "X-Request-ID"
 	correlationIDHeader = "X-Correlation-ID"
-	maxBodyLogSize      = 10 * 1024 // 10 KB
 )
 
 // HTTP middleware
 
-// HTTPMiddleware returns a middleware that logs HTTP requests and responses
-func HTTPMiddleware(skipPaths []string) func(http.Handler) http.Handler {
+// HTTPLogger returns middleware that logs HTTP requests and responses
+func HTTPLogger(skipPaths []string) func(http.Handler) http.Handler {
 	skipPathMap := make(map[string]bool, len(skipPaths))
 	for _, path := range skipPaths {
 		skipPathMap[path] = true
@@ -30,7 +30,7 @@ func HTTPMiddleware(skipPaths []string) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip logging for certain paths
+			// Skip logging for specified paths
 			if skipPathMap[r.URL.Path] {
 				next.ServeHTTP(w, r)
 				return
@@ -39,37 +39,37 @@ func HTTPMiddleware(skipPaths []string) func(http.Handler) http.Handler {
 			start := time.Now()
 			logger := logging.Get()
 
-			// Ensure we have a request ID
+			// Ensure request ID exists
 			requestID := r.Header.Get(requestIDHeader)
 			if requestID == "" {
 				requestID = uuid.New().String()
 				r.Header.Set(requestIDHeader, requestID)
 			}
 
-			// Get correlation ID if present, or use request ID
+			// Get correlation ID or use request ID
 			correlationID := r.Header.Get(correlationIDHeader)
 			if correlationID == "" {
 				correlationID = requestID
 			}
 
-			// Enhance context with request information
+			// Add information to context
 			ctx := r.Context()
 			ctx = logging.WithRequestID(ctx, requestID)
 			ctx = logging.WithCorrelationID(ctx, correlationID)
 			ctx = logging.WithIPAddress(ctx, r.RemoteAddr)
 			ctx = logging.WithUserAgent(ctx, r.UserAgent())
-
-			// Update request with enhanced context
 			r = r.WithContext(ctx)
 
-			// Create a response wrapper to capture status code
-			rw := newResponseWriter(w)
+			// Create response wrapper to capture status code and size
+			rw := &responseWriter{
+				ResponseWriter: w,
+				status:         http.StatusOK,
+			}
 
-			// Log the request
+			// Log request start
 			logger.WithContext(ctx).Info("HTTP request started",
 				logging.String("method", r.Method),
 				logging.String("path", r.URL.Path),
-				logging.String("query", r.URL.RawQuery),
 			)
 
 			// Call the next handler
@@ -78,22 +78,18 @@ func HTTPMiddleware(skipPaths []string) func(http.Handler) http.Handler {
 			// Calculate duration
 			duration := time.Since(start)
 
-			// Prepare status code for logging
-			statusCode := rw.status
-
-			// Log at appropriate level based on status code
+			// Log request completion at appropriate level
 			logFn := logger.WithContext(ctx).Info
-			if statusCode >= 500 {
+			if rw.status >= 500 {
 				logFn = logger.WithContext(ctx).Error
-			} else if statusCode >= 400 {
+			} else if rw.status >= 400 {
 				logFn = logger.WithContext(ctx).Warn
 			}
 
-			// Log the response
 			logFn("HTTP request completed",
 				logging.String("method", r.Method),
 				logging.String("path", r.URL.Path),
-				logging.Int("status", statusCode),
+				logging.Int("status", rw.status),
 				logging.Duration("duration", duration),
 				logging.Int("response_size", rw.size),
 			)
@@ -101,18 +97,11 @@ func HTTPMiddleware(skipPaths []string) func(http.Handler) http.Handler {
 	}
 }
 
-// responseWriter is a wrapper for http.ResponseWriter that captures status code and response size
+// responseWriter wraps http.ResponseWriter to capture status code and size
 type responseWriter struct {
 	http.ResponseWriter
 	status int
 	size   int
-}
-
-func newResponseWriter(w http.ResponseWriter) *responseWriter {
-	return &responseWriter{
-		ResponseWriter: w,
-		status:         http.StatusOK, // Default status code
-	}
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
@@ -128,8 +117,8 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 
 // gRPC middleware
 
-// UnaryServerInterceptor returns a gRPC unary server interceptor for logging
-func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
+// UnaryServerLogger returns a gRPC unary server interceptor for logging
+func UnaryServerLogger() grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -143,46 +132,35 @@ func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 		md, _ := metadata.FromIncomingContext(ctx)
 
 		// Get or generate request ID
-		requestIDs := md.Get(requestIDHeader)
-		requestID := ""
-		if len(requestIDs) > 0 {
-			requestID = requestIDs[0]
-		} else {
+		requestID := getFirstMetadataValue(md, requestIDHeader)
+		if requestID == "" {
 			requestID = uuid.New().String()
-			md.Set(requestIDHeader, requestID)
+			md = metadata.Join(md, metadata.Pairs(requestIDHeader, requestID))
 			ctx = metadata.NewIncomingContext(ctx, md)
 		}
 
-		// Get correlation ID
-		correlationIDs := md.Get(correlationIDHeader)
-		correlationID := ""
-		if len(correlationIDs) > 0 {
-			correlationID = correlationIDs[0]
-		} else {
+		// Get correlation ID or use request ID
+		correlationID := getFirstMetadataValue(md, correlationIDHeader)
+		if correlationID == "" {
 			correlationID = requestID
 		}
 
-		// Enhance context with request information
+		// Enhance context
 		ctx = logging.WithRequestID(ctx, requestID)
 		ctx = logging.WithCorrelationID(ctx, correlationID)
 
-		// Log the request
+		// Log request start
 		logger.WithContext(ctx).Info("gRPC request started",
 			logging.String("method", info.FullMethod),
-			logging.Any("request", sanitizeForLogging(req)),
 		)
 
-		// Invoke the handler
+		// Handle the request
 		resp, err := handler(ctx, req)
 
-		// Calculate duration
+		// Log completion
 		duration := time.Since(startTime)
-
-		// Choose log level based on error
-		logFn := logger.WithContext(ctx).Info
 		if err != nil {
 			st, _ := status.FromError(err)
-			logFn = logger.WithContext(ctx).Error
 			logger.WithContext(ctx).Error("gRPC request failed",
 				logging.String("method", info.FullMethod),
 				logging.String("code", st.Code().String()),
@@ -190,11 +168,9 @@ func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 				logging.Duration("duration", duration),
 			)
 		} else {
-			// Log the response
-			logFn("gRPC request completed",
+			logger.WithContext(ctx).Info("gRPC request completed",
 				logging.String("method", info.FullMethod),
 				logging.Duration("duration", duration),
-				logging.Any("response", sanitizeForLogging(resp)),
 			)
 		}
 
@@ -202,8 +178,8 @@ func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// StreamServerInterceptor returns a gRPC stream server interceptor for logging
-func StreamServerInterceptor() grpc.StreamServerInterceptor {
+// StreamServerLogger returns a gRPC stream server interceptor for logging
+func StreamServerLogger() grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
 		ss grpc.ServerStream,
@@ -212,68 +188,54 @@ func StreamServerInterceptor() grpc.StreamServerInterceptor {
 	) error {
 		startTime := time.Now()
 		logger := logging.Get()
-
-		// Extract context and metadata
 		ctx := ss.Context()
+
+		// Extract metadata
 		md, _ := metadata.FromIncomingContext(ctx)
 
 		// Get or generate request ID
-		requestIDs := md.Get(requestIDHeader)
-		requestID := ""
-		if len(requestIDs) > 0 {
-			requestID = requestIDs[0]
-		} else {
+		requestID := getFirstMetadataValue(md, requestIDHeader)
+		if requestID == "" {
 			requestID = uuid.New().String()
-			md.Set(requestIDHeader, requestID)
+			md = metadata.Join(md, metadata.Pairs(requestIDHeader, requestID))
 			ctx = metadata.NewIncomingContext(ctx, md)
 		}
 
-		// Get correlation ID
-		correlationIDs := md.Get(correlationIDHeader)
-		correlationID := ""
-		if len(correlationIDs) > 0 {
-			correlationID = correlationIDs[0]
-		} else {
+		// Get correlation ID or use request ID
+		correlationID := getFirstMetadataValue(md, correlationIDHeader)
+		if correlationID == "" {
 			correlationID = requestID
 		}
 
-		// Enhance context with request information
+		// Enhance context
 		ctx = logging.WithRequestID(ctx, requestID)
 		ctx = logging.WithCorrelationID(ctx, correlationID)
 
-		// Create a wrapped stream with the enhanced context
-		wrappedStream := &wrappedServerStream{
+		// Create wrapped stream with enhanced context
+		wrappedStream := &serverStreamWithContext{
 			ServerStream: ss,
 			ctx:          ctx,
 		}
 
-		// Log the stream start
+		// Log stream start
 		logger.WithContext(ctx).Info("gRPC stream started",
 			logging.String("method", info.FullMethod),
-			logging.Bool("client_stream", info.IsClientStream),
-			logging.Bool("server_stream", info.IsServerStream),
 		)
 
 		// Handle the stream
 		err := handler(srv, wrappedStream)
 
-		// Calculate duration
+		// Log completion
 		duration := time.Since(startTime)
-
-		// Choose log level based on error
-		logFn := logger.WithContext(ctx).Info
 		if err != nil {
 			st, _ := status.FromError(err)
-			logFn = logger.WithContext(ctx).Error
 			logger.WithContext(ctx).Error("gRPC stream failed",
 				logging.String("method", info.FullMethod),
 				logging.String("code", st.Code().String()),
-				logging.String("message", st.Message()),
 				logging.Duration("duration", duration),
 			)
 		} else {
-			// Log the stream completion
-			logFn("gRPC stream completed",
+			logger.WithContext(ctx).Info("gRPC stream completed",
 				logging.String("method", info.FullMethod),
 				logging.Duration("duration", duration),
 			)
@@ -283,19 +245,21 @@ func StreamServerInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
-// wrappedServerStream wraps grpc.ServerStream to override context
-type wrappedServerStream struct {
+// Helper to get first value from metadata
+func getFirstMetadataValue(md metadata.MD, key string) string {
+	values := md.Get(key)
+	if len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
+// serverStreamWithContext wraps grpc.ServerStream to provide custom context
+type serverStreamWithContext struct {
 	grpc.ServerStream
 	ctx context.Context
 }
 
-func (w *wrappedServerStream) Context() context.Context {
+func (w *serverStreamWithContext) Context() context.Context {
 	return w.ctx
-}
-
-// sanitizeForLogging prevents sensitive data from being logged
-func sanitizeForLogging(obj interface{}) interface{} {
-	// This is a placeholder for a more complex implementation
-	// that would sanitize passwords, tokens, etc.
-	return obj
 }

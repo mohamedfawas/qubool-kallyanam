@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -133,21 +135,51 @@ func (c *Client) GetPool() *pgxpool.Pool {
 
 // buildConnectionString creates a PostgreSQL connection string
 func (c *Client) buildConnectionString() string {
+	// Check for environment variables first (industry standard practice)
+	host := c.config.Host
+	if envHost := os.Getenv("POSTGRES_HOST"); envHost != "" {
+		host = envHost
+	}
+
+	port := c.config.Port
+	if envPort := os.Getenv("POSTGRES_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
+			port = p
+		}
+	}
+
+	username := c.config.Username
+	if envUser := os.Getenv("POSTGRES_USER"); envUser != "" {
+		username = envUser
+	}
+
+	password := c.config.Password
+	if envPass := os.Getenv("POSTGRES_PASSWORD"); envPass != "" {
+		password = envPass
+	}
+
+	database := c.config.Database
+	if envDB := os.Getenv("POSTGRES_DB"); envDB != "" {
+		database = envDB
+	}
+
 	sslMode := c.config.SSLMode
 	if sslMode == "" {
 		sslMode = "disable"
 	}
 
+	// Build connection string with proper parameter formatting
 	connStr := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		c.config.Host,
-		c.config.Port,
-		c.config.Username,
-		c.config.Password,
-		c.config.Database,
+		host,
+		port,
+		username,
+		password,
+		database,
 		sslMode,
 	)
 
+	// Add other optional parameters if needed
 	if c.config.ApplicationName != "" {
 		connStr += fmt.Sprintf(" application_name=%s", c.config.ApplicationName)
 	}

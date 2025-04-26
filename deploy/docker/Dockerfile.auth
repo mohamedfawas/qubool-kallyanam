@@ -1,0 +1,36 @@
+# Build stage
+FROM golang:1.23.4-alpine AS builder
+
+WORKDIR /app
+
+# Copy only what's needed for this service
+COPY pkg/ /app/pkg/
+COPY services/auth/ /app/services/auth/
+
+# Add a replace directive to find the pkg module locally
+RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/auth/go.mod
+
+# Build without using workspace
+RUN cd /app/services/auth && \
+    go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -o /app/auth-service ./cmd/main.go
+
+# Runtime stage
+FROM alpine:latest
+WORKDIR /app
+RUN apk --no-cache add ca-certificates tzdata wget && update-ca-certificates
+COPY --from=builder /app/auth-service .
+COPY --from=builder /app/services/auth/configs/config.yaml /app/configs/config.yaml
+RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
+USER appuser
+EXPOSE 50052
+ENV POSTGRES_HOST=postgres \
+    POSTGRES_PORT=5432 \
+    POSTGRES_USER=postgres \
+    POSTGRES_PASSWORD=password \
+    POSTGRES_DB=auth\
+    REDIS_HOST=redis \
+    REDIS_PORT=6379 \
+    REDIS_PASSWORD="" \
+    REDIS_DB=0
+CMD ["./auth-service", "--config=configs/config.yaml"]

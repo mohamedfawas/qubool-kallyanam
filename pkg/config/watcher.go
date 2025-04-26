@@ -1,74 +1,77 @@
 package config
 
-import (
-	"fmt"
-	"sync"
+// use in development only, not in production
+// less priority , so not focusing on this now.
 
-	"github.com/fsnotify/fsnotify"
-)
+// import (
+// 	"fmt"
+// 	"sync"
 
-// Watcher watches for changes in configuration files
-type Watcher struct {
-	manager   *Manager
-	loader    *Loader
-	handlers  []func()
-	mu        sync.Mutex
-	isRunning bool
-}
+// 	"github.com/fsnotify/fsnotify"
+// )
 
-// NewWatcher creates a new configuration watcher
-func NewWatcher(manager *Manager, loader *Loader) *Watcher {
-	return &Watcher{
-		manager:  manager,
-		loader:   loader,
-		handlers: make([]func(), 0),
-	}
-}
+// // Watcher watches for changes in configuration files
+// type Watcher struct {
+// 	manager   *Manager
+// 	loader    *Loader
+// 	handlers  []func()
+// 	mu        sync.Mutex
+// 	isRunning bool
+// }
 
-// Start begins watching for configuration changes
-func (w *Watcher) Start(configName string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+// // NewWatcher creates a new configuration watcher
+// func NewWatcher(manager *Manager, loader *Loader) *Watcher {
+// 	return &Watcher{
+// 		manager:  manager,
+// 		loader:   loader,
+// 		handlers: make([]func(), 0),
+// 	}
+// }
 
-	if w.isRunning {
-		return nil
-	}
+// // Start begins watching for configuration changes
+// func (w *Watcher) Start(configName string) error {
+// 	w.mu.Lock()
+// 	defer w.mu.Unlock()
 
-	// Get Viper instance from loader
-	v := w.loader.GetViper()
+// 	if w.isRunning {
+// 		return nil
+// 	}
 
-	// Setup Viper to watch for changes
-	v.WatchConfig()
+// 	// Get Viper instance from loader
+// 	v := w.loader.GetViper()
 
-	// Register callback for config changes
-	v.OnConfigChange(func(e fsnotify.Event) {
-		// Reload the configuration
-		if err := w.manager.Reload(configName); err != nil {
-			fmt.Printf("Error reloading config: %v\n", err)
-			return
-		}
+// 	// Setup Viper to watch for changes
+// 	v.WatchConfig()
 
-		// Notify all handlers
-		w.notifyHandlers()
-	})
+// 	// Register callback for config changes
+// 	v.OnConfigChange(func(e fsnotify.Event) {
+// 		// Reload the configuration
+// 		if err := w.manager.Reload(configName); err != nil {
+// 			fmt.Printf("Error reloading config: %v\n", err)
+// 			return
+// 		}
 
-	w.isRunning = true
-	return nil
-}
+// 		// Notify all handlers
+// 		w.notifyHandlers()
+// 	})
 
-// RegisterChangeHandler registers a handler to be called when config changes
-func (w *Watcher) RegisterChangeHandler(handler func()) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.handlers = append(w.handlers, handler)
-}
+// 	w.isRunning = true
+// 	return nil
+// }
 
-// notifyHandlers calls all registered handlers
-func (w *Watcher) notifyHandlers() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+// // RegisterChangeHandler registers a handler to be called when config changes
+// func (w *Watcher) RegisterChangeHandler(handler func()) {
+// 	w.mu.Lock()
+// 	defer w.mu.Unlock()
+// 	w.handlers = append(w.handlers, handler)
+// }
 
-	for _, handler := range w.handlers {
-		handler()
-	}
-}
+// // notifyHandlers calls all registered handlers
+// func (w *Watcher) notifyHandlers() {
+// 	w.mu.Lock()
+// 	defer w.mu.Unlock()
+
+// 	for _, handler := range w.handlers {
+// 		handler()
+// 	}
+// }

@@ -1,0 +1,25 @@
+# services/gateway/configs/config.yaml
+service:
+  name: gateway-service
+  environment: development
+  version: "0.1.0"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  timeout: 30
+
+# Use network aliases that match the service names in docker-compose
+services:
+  user: "user-service:50051"
+  auth: "auth-service:50052" 
+  chat: "chat-service:50053"
+  admin: "admin-service:50054"
+
+logging:
+  level: debug
+  development: true
+  encoding: console
+  output_paths:
+    - stdout
+  service_name: gateway-service

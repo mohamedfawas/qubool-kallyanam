@@ -1,3 +1,4 @@
+// structured.go
 package logging
 
 import (
@@ -5,7 +6,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // Common context keys for logging
@@ -20,56 +20,7 @@ const (
 	userAgentKey   contextKey = "user_agent"
 )
 
-// extractContextFields extracts known fields from context
-func extractContextFields(ctx context.Context) []zapcore.Field {
-	var fields []zapcore.Field
-
-	// Extract request ID if present
-	if v := ctx.Value(requestIDKey); v != nil {
-		if id, ok := v.(string); ok && id != "" {
-			fields = append(fields, zap.String("request_id", id))
-		}
-	}
-
-	// Extract user ID if present
-	if v := ctx.Value(userIDKey); v != nil {
-		if id, ok := v.(string); ok && id != "" {
-			fields = append(fields, zap.String("user_id", id))
-		}
-	}
-
-	// Extract correlation ID if present
-	if v := ctx.Value(correlationKey); v != nil {
-		if id, ok := v.(string); ok && id != "" {
-			fields = append(fields, zap.String("correlation_id", id))
-		}
-	}
-
-	// Extract session ID if present
-	if v := ctx.Value(sessionIDKey); v != nil {
-		if id, ok := v.(string); ok && id != "" {
-			fields = append(fields, zap.String("session_id", id))
-		}
-	}
-
-	// Extract IP address if present
-	if v := ctx.Value(ipAddressKey); v != nil {
-		if ip, ok := v.(string); ok && ip != "" {
-			fields = append(fields, zap.String("ip_address", ip))
-		}
-	}
-
-	// Extract user agent if present
-	if v := ctx.Value(userAgentKey); v != nil {
-		if ua, ok := v.(string); ok && ua != "" {
-			fields = append(fields, zap.String("user_agent", ua))
-		}
-	}
-
-	return fields
-}
-
-// Context builder functions
+// Context helper functions
 
 // WithRequestID adds a request ID to context
 func WithRequestID(ctx context.Context, requestID string) context.Context {
@@ -101,81 +52,101 @@ func WithUserAgent(ctx context.Context, userAgent string) context.Context {
 	return context.WithValue(ctx, userAgentKey, userAgent)
 }
 
-// Common field constructors
+// Extract fields from context
+func extractContextFields(ctx context.Context) []Field {
+	var fields []Field
+
+	addStringField := func(key contextKey, fieldName string) {
+		if v, ok := ctx.Value(key).(string); ok && v != "" {
+			fields = append(fields, String(fieldName, v))
+		}
+	}
+
+	addStringField(requestIDKey, "request_id")
+	addStringField(userIDKey, "user_id")
+	addStringField(correlationKey, "correlation_id")
+	addStringField(sessionIDKey, "session_id")
+	addStringField(ipAddressKey, "ip_address")
+	addStringField(userAgentKey, "user_agent")
+
+	return fields
+}
+
+// Field constructors
 
 // Error creates an error field
-func Error(err error) zapcore.Field {
+func Error(err error) Field {
 	return zap.Error(err)
 }
 
 // String creates a string field
-func String(key, val string) zapcore.Field {
+func String(key, val string) Field {
 	return zap.String(key, val)
 }
 
 // Int creates an integer field
-func Int(key string, val int) zapcore.Field {
+func Int(key string, val int) Field {
 	return zap.Int(key, val)
 }
 
 // Int64 creates an int64 field
-func Int64(key string, val int64) zapcore.Field {
+func Int64(key string, val int64) Field {
 	return zap.Int64(key, val)
 }
 
 // Float64 creates a float64 field
-func Float64(key string, val float64) zapcore.Field {
+func Float64(key string, val float64) Field {
 	return zap.Float64(key, val)
 }
 
 // Bool creates a bool field
-func Bool(key string, val bool) zapcore.Field {
+func Bool(key string, val bool) Field {
 	return zap.Bool(key, val)
 }
 
 // Duration creates a duration field
-func Duration(key string, val time.Duration) zapcore.Field {
+func Duration(key string, val time.Duration) Field {
 	return zap.Duration(key, val)
 }
 
 // Time creates a time field
-func Time(key string, val time.Time) zapcore.Field {
+func Time(key string, val time.Time) Field {
 	return zap.Time(key, val)
 }
 
 // Any creates a field with any value
-func Any(key string, val interface{}) zapcore.Field {
+func Any(key string, val interface{}) Field {
 	return zap.Any(key, val)
 }
 
-// Matrimony-specific field constructors
+// Application-specific field constructors
 
 // ProfileID creates a profile ID field
-func ProfileID(id string) zapcore.Field {
-	return zap.String("profile_id", id)
+func ProfileID(id string) Field {
+	return String("profile_id", id)
 }
 
 // MatchID creates a match ID field
-func MatchID(id string) zapcore.Field {
-	return zap.String("match_id", id)
+func MatchID(id string) Field {
+	return String("match_id", id)
 }
 
 // ConversationID creates a conversation ID field
-func ConversationID(id string) zapcore.Field {
-	return zap.String("conversation_id", id)
+func ConversationID(id string) Field {
+	return String("conversation_id", id)
 }
 
 // PaymentID creates a payment ID field
-func PaymentID(id string) zapcore.Field {
-	return zap.String("payment_id", id)
+func PaymentID(id string) Field {
+	return String("payment_id", id)
 }
 
 // EventName creates an event name field
-func EventName(name string) zapcore.Field {
-	return zap.String("event_name", name)
+func EventName(name string) Field {
+	return String("event_name", name)
 }
 
 // Latency creates a latency field
-func Latency(duration time.Duration) zapcore.Field {
-	return zap.Duration("latency_ms", duration)
+func Latency(duration time.Duration) Field {
+	return Duration("latency_ms", duration)
 }
