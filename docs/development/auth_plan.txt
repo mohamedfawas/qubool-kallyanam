@@ -1,0 +1,588 @@
+
+
+Ran tool
+
+Ran tool
+
+Ran tool
+
+Read file: api/proto/auth/v1/auth.proto
+
+Ran tool
+
+Ran tool
+
+Ran tool
+
+Ran tool
+
+Read file: docs/architecture/planned_project_directory_structure.txt
+
+Read file: services/auth/internal/server/grpc.go
+
+Search files...
+# Authentication and RBAC Implementation Plan with gRPC
+
+## 1. System Architecture Overview
+
+```
+┌──────────────┐                                 
+│    Client    │                                 
+└──────┬───────┘                                 
+       │                                         
+       │ HTTP                                    
+       ▼                                         
+┌──────────────┐                                 
+│    Gateway   │                                 
+│    Service   │                                 
+└──────┬───────┘                                 
+       │                                         
+       │ gRPC                                    
+       ▼                                         
+┌─────────────────────────────────────────────┐ 
+│                                             │ 
+│ ┌───────────┐ ┌──────────┐ ┌────────────┐  │ 
+│ │   Auth    │ │   User   │ │   Admin    │  │ 
+│ │  Service  │ │ Service  │ │  Service   │  │ 
+│ └─────┬─────┘ └────┬─────┘ └─────┬──────┘  │ 
+│       │            │             │         │ 
+│       └────────────┼─────────────┘         │ 
+│                    │                        │ 
+│               ┌────┴─────┐                  │ 
+│               │   Chat   │                  │ 
+│               │ Service  │                  │ 
+│               └──────────┘                  │ 
+│                                             │ 
+└─────────────────────────────────────────────┘
+```
+
+## 2. Core Components
+
+### Authentication System
+1. **JWT-based authentication** with your existing JWT package
+2. **Redis-backed session store** for token management and revocation
+3. **Gateway-level authentication middleware** for HTTP requests
+4. **gRPC interceptors** for service-to-service authentication
+5. **Redis-backed blacklist** for revoked tokens
+
+### RBAC Implementation
+1. **Resource-Action permission model** using your existing RBAC package
+2. **Service-specific authorization** enforced at the service level
+3. **Resource ownership checks** to validate access to owned resources
+
+## 3. Token Management Design
+
+### Token Structure and Storage
+
+**Access Token**:
+- JWT containing UserID, Role
+- Short-lived (15 minutes)
+
+**Refresh Token**:
+- JWT containing UserID, Unique TokenID, Role
+- Longer-lived (7 days)
+
+**Redis Storage**:
+```
+# User sessions
+sessions:{userId}:{sessionId} -> {
+  "refreshTokenId": "unique_identifier",
+  "expiresAt": timestamp,
+  "deviceInfo": "user_agent_string",
+  "ipAddress": "ip_address"
+}
+
+# Token blacklist (for immediate revocation)
+blacklist:tokens:{tokenId} -> expiry_timestamp
+```
+
+## 4. Authentication Flow
+
+### 1. User Registration
+```
+┌────────┐          ┌─────────┐          ┌────────┐          ┌────────┐
+│ Client │          │ Gateway │          │  Auth  │          │  User  │
+└───┬────┘          └────┬────┘          └───┬────┘          └───┬────┘
+    │    Register        │                    │                   │
+    │ ───────────────────>                    │                   │
+    │                    │    Register (gRPC) │                   │
+    │                    │ ───────────────────>                   │
+    │                    │                    │   Create User     │
+    │                    │                    │ ──────────────────>
+    │                    │                    │                   │
+    │                    │                    │   User Created    │
+    │                    │                    │ <──────────────────
+    │                    │    Registration    │                   │
+    │                    │      Success       │                   │
+    │                    │ <─────────────────────                 │
+    │  Email Verification│                    │                   │
+    │     Required       │                    │                   │
+    │ <─────────────────────                  │                   │
+    │                    │                    │                   │
+    │  Verify Email      │                    │                   │
+    │ ───────────────────>                    │                   │
+    │                    │  Verify (gRPC)     │                   │
+    │                    │ ───────────────────>                   │
+    │                    │                    │   Update User     │
+    │                    │                    │ ──────────────────>
+    │                    │                    │                   │
+    │                    │                    │   User Updated    │
+    │                    │                    │ <──────────────────
+    │                    │    Verification    │                   │
+    │                    │      Success       │                   │
+    │                    │ <─────────────────────                 │
+    │  Verification      │                    │                   │
+    │    Complete        │                    │                   │
+    │ <─────────────────────                  │                   │
+```
+
+### 2. User Login
+```
+┌────────┐          ┌─────────┐          ┌────────┐
+│ Client │          │ Gateway │          │  Auth  │
+└───┬────┘          └────┬────┘          └───┬────┘
+    │    Login           │                    │    
+    │ ───────────────────>                    │    
+    │                    │    Login (gRPC)    │    
+    │                    │ ───────────────────>    
+    │                    │                    │    
+    │                    │    Validate        │    
+    │                    │    Credentials     │    
+    │                    │                    │    
+    │                    │   Generate Tokens  │    
+    │                    │                    │    
+    │                    │   Store Session    │    
+    │                    │   in Redis         │    
+    │                    │                    │    
+    │                    │    Login Success   │    
+    │                    │   + Access Token   │    
+    │                    │   + Refresh Token  │    
+    │                    │ <─────────────────────  
+    │  Login Success     │                    │    
+    │  + Access Token    │                    │    
+    │  + Refresh Token   │                    │    
+    │ <─────────────────────                  │    
+```
+
+### 3. Authenticated Request
+```
+┌────────┐          ┌─────────┐          ┌───────────┐
+│ Client │          │ Gateway │          │ Service   │
+└───┬────┘          └────┬────┘          └─────┬─────┘
+    │   Request with     │                      │     
+    │   Access Token     │                      │     
+    │ ───────────────────>                      │     
+    │                    │                      │     
+    │                    │  Validate Token      │     
+    │                    │  (Signature + Expiry)│     
+    │                    │                      │     
+    │                    │  Check Token in      │     
+    │                    │  Redis Blacklist     │     
+    │                    │                      │     
+    │                    │  Extract User Claims │     
+    │                    │                      │     
+    │                    │    Service Request   │     
+    │                    │    (with User Context)     
+    │                    │ ─────────────────────>     
+    │                    │                      │     
+    │                    │    Check RBAC        │     
+    │                    │    Permission        │     
+    │                    │                      │     
+    │                    │    Process Request   │     
+    │                    │                      │     
+    │                    │    Response          │     
+    │                    │ <─────────────────────     
+    │     Response       │                      │     
+    │ <─────────────────────                    │     
+```
+
+### 4. Token Refresh
+```
+┌────────┐          ┌─────────┐          ┌────────┐
+│ Client │          │ Gateway │          │  Auth  │
+└───┬────┘          └────┬────┘          └───┬────┘
+    │  Access Token      │                    │    
+    │  Expired           │                    │    
+    │                    │                    │    
+    │  Refresh Request   │                    │    
+    │  with Refresh Token│                    │    
+    │ ───────────────────>                    │    
+    │                    │  Refresh (gRPC)    │    
+    │                    │ ───────────────────>    
+    │                    │                    │    
+    │                    │  Validate Refresh  │    
+    │                    │  Token             │    
+    │                    │                    │    
+    │                    │  Check Token in    │    
+    │                    │  Redis Session     │    
+    │                    │                    │    
+    │                    │  Generate New      │    
+    │                    │  Access Token      │    
+    │                    │                    │    
+    │                    │  Update Session    │    
+    │                    │  in Redis          │    
+    │                    │                    │    
+    │                    │  New Access Token  │    
+    │                    │ <─────────────────────  
+    │  New Access Token  │                    │    
+    │ <─────────────────────                  │    
+```
+
+### 5. Logout
+```
+┌────────┐          ┌─────────┐          ┌────────┐
+│ Client │          │ Gateway │          │  Auth  │
+└───┬────┘          └────┬────┘          └───┬────┘
+    │    Logout          │                    │    
+    │    with Token      │                    │    
+    │ ───────────────────>                    │    
+    │                    │   Logout (gRPC)    │    
+    │                    │ ───────────────────>    
+    │                    │                    │    
+    │                    │  Extract Session ID│    
+    │                    │  from Token        │    
+    │                    │                    │    
+    │                    │  Remove Session    │    
+    │                    │  from Redis        │    
+    │                    │                    │    
+    │                    │  Add Token to      │    
+    │                    │  Blacklist         │    
+    │                    │                    │    
+    │                    │  Logout Success    │    
+    │                    │ <─────────────────────  
+    │   Logout Success   │                    │    
+    │ <─────────────────────                  │    
+```
+
+## 5. Implementation Details
+
+### 1. Gateway Service
+
+#### HTTP Auth Middleware (for client requests)
+```go
+package middleware
+
+import (
+    "net/http"
+    "strings"
+
+    "github.com/gin-gonic/gin"
+    "github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
+    "github.com/redis/go-redis/v9"
+)
+
+// AuthMiddleware validates JWT tokens for HTTP requests
+func AuthMiddleware(jwtManager *jwt.Manager, redisClient *redis.Client) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Skip auth for public endpoints
+        if isPublicPath(c.Request.URL.Path) {
+            c.Next()
+            return
+        }
+
+        // Extract token from Authorization header
+        authHeader := c.GetHeader("Authorization")
+        if !strings.HasPrefix(authHeader, "Bearer ") {
+            c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid authorization header"})
+            return
+        }
+        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+        // Validate token
+        claims, err := jwtManager.ValidateToken(tokenString)
+        if err != nil {
+            status := http.StatusUnauthorized
+            var message string
+            
+            if errors.Is(err, jwt.ErrExpiredToken) {
+                message = "token expired"
+            } else {
+                message = "invalid token"
+            }
+            
+            c.AbortWithStatusJSON(status, gin.H{"error": message})
+            return
+        }
+
+        // Check if token has been blacklisted (logged out)
+        tokenID := claims.ID
+        blacklisted, err := redisClient.Exists(c.Request.Context(), 
+                                             fmt.Sprintf("blacklist:tokens:%s", tokenID)).Result()
+        if err == nil && blacklisted > 0 {
+            c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token has been revoked"})
+            return
+        }
+
+        // Add claims to request context
+        ctx := jwt.ContextWithClaims(c.Request.Context(), claims)
+        c.Request = c.Request.WithContext(ctx)
+        
+        c.Next()
+    }
+}
+```
+
+#### gRPC Client Interceptor (for service calls)
+```go
+// UnaryClientAuthInterceptor forwards auth context to gRPC services
+func UnaryClientAuthInterceptor() grpc.UnaryClientInterceptor {
+    return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, 
+                invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+        
+        // Extract claims from incoming request
+        claims, ok := jwt.ClaimsFromContext(ctx)
+        if ok {
+            // Add claims as metadata for outgoing gRPC request
+            md := metadata.Pairs(
+                "user-id", claims.UserID,
+                "user-role", string(claims.Role),
+            )
+            ctx = metadata.NewOutgoingContext(ctx, md)
+        }
+        
+        // Forward to the gRPC service
+        return invoker(ctx, method, req, reply, cc, opts...)
+    }
+}
+```
+
+### 2. Auth Service Implementation
+
+#### Session Management
+```go
+// AuthService handles authentication operations
+type AuthService struct {
+    userClient  userpb.UserServiceClient
+    redis       *redis.Client
+    jwtManager  *jwt.Manager
+    logger      logging.Logger
+}
+
+// Login authenticates a user and issues tokens
+func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
+    // Validate credentials with user service
+    user, err := s.userClient.GetUserByEmail(ctx, &userpb.GetUserByEmailRequest{
+        Email: req.Email,
+    })
+    if err != nil {
+        return nil, err
+    }
+    
+    // Verify password (using bcrypt or similar)
+    if !verifyPassword(req.Password, user.PasswordHash) {
+        return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+    }
+    
+    // Determine user role
+    var role jwt.Role
+    if user.IsAdmin {
+        role = jwt.RoleAdmin
+    } else {
+        role = jwt.RoleUser
+    }
+    
+    // Generate tokens
+    accessToken, refreshToken, err := s.jwtManager.GenerateTokenPair(user.Id, role)
+    if err != nil {
+        return nil, status.Error(codes.Internal, "failed to generate tokens")
+    }
+    
+    // Extract refresh token ID from claims
+    refreshClaims, _ := s.jwtManager.ValidateToken(refreshToken)
+    refreshTokenID := refreshClaims.ID
+    
+    // Create session
+    sessionID := generateSessionID()
+    sessionData := map[string]interface{}{
+        "refreshTokenId": refreshTokenID,
+        "userId": user.Id,
+        "role": string(role),
+        "expiresAt": time.Now().Add(7 * 24 * time.Hour).Unix(),
+        "userAgent": extractUserAgent(ctx),
+        "ipAddress": extractClientIP(ctx),
+    }
+    
+    // Store session in Redis
+    err = s.redis.HSet(ctx, 
+        fmt.Sprintf("sessions:%s:%s", user.Id, sessionID), 
+        sessionData).Err()
+    if err != nil {
+        return nil, status.Error(codes.Internal, "failed to store session")
+    }
+    
+    // Set session expiry
+    s.redis.Expire(ctx, 
+        fmt.Sprintf("sessions:%s:%s", user.Id, sessionID), 
+        7*24*time.Hour)
+    
+    return &authpb.LoginResponse{
+        AccessToken: accessToken,
+        RefreshToken: refreshToken,
+        SessionId: sessionID,
+        UserId: user.Id,
+    }, nil
+}
+
+// RefreshToken refreshes an access token
+func (s *AuthService) RefreshToken(ctx context.Context, req *authpb.RefreshTokenRequest) (*authpb.RefreshTokenResponse, error) {
+    // Validate refresh token
+    claims, err := s.jwtManager.ValidateToken(req.RefreshToken)
+    if err != nil {
+        return nil, status.Error(codes.Unauthenticated, "invalid refresh token")
+    }
+    
+    // Check if session exists in Redis
+    sessionKey := fmt.Sprintf("sessions:%s:%s", claims.UserID, req.SessionId)
+    exists, err := s.redis.Exists(ctx, sessionKey).Result()
+    if err != nil || exists == 0 {
+        return nil, status.Error(codes.Unauthenticated, "session not found or expired")
+    }
+    
+    // Check if refresh token ID matches
+    storedTokenID, err := s.redis.HGet(ctx, sessionKey, "refreshTokenId").Result()
+    if err != nil || storedTokenID != claims.ID {
+        return nil, status.Error(codes.Unauthenticated, "invalid session")
+    }
+    
+    // Generate new access token
+    newAccessToken, err := s.jwtManager.GenerateAccessToken(claims.UserID, claims.Role)
+    if err != nil {
+        return nil, status.Error(codes.Internal, "failed to generate new access token")
+    }
+    
+    return &authpb.RefreshTokenResponse{
+        AccessToken: newAccessToken,
+    }, nil
+}
+
+// Logout revokes a session
+func (s *AuthService) Logout(ctx context.Context, req *authpb.LogoutRequest) (*authpb.LogoutResponse, error) {
+    // Validate access token
+    claims, err := s.jwtManager.ValidateToken(req.AccessToken)
+    if err != nil {
+        return nil, status.Error(codes.Unauthenticated, "invalid token")
+    }
+    
+    // Remove session from Redis
+    sessionKey := fmt.Sprintf("sessions:%s:%s", claims.UserID, req.SessionId)
+    s.redis.Del(ctx, sessionKey)
+    
+    // Add token to blacklist until its original expiry time
+    blacklistKey := fmt.Sprintf("blacklist:tokens:%s", claims.ID)
+    expiryTime := time.Until(time.Unix(claims.ExpiresAt.Unix(), 0))
+    s.redis.Set(ctx, blacklistKey, "1", expiryTime)
+    
+    return &authpb.LogoutResponse{
+        Success: true,
+    }, nil
+}
+```
+
+### 3. Service-Level Authorization
+
+#### gRPC Server Interceptor for RBAC
+```go
+// UnaryAuthorizationInterceptor enforces RBAC for gRPC services
+func UnaryAuthorizationInterceptor(rbacChecker *rbac.Checker) grpc.UnaryServerInterceptor {
+    return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+        // Get method-specific permissions
+        requiredPermission, requiresAuth := methodPermissions[info.FullMethod]
+        
+        // Skip auth check for public methods
+        if !requiresAuth {
+            return handler(ctx, req)
+        }
+        
+        // Extract user metadata from context
+        md, ok := metadata.FromIncomingContext(ctx)
+        if !ok {
+            return nil, status.Error(codes.Unauthenticated, "missing auth metadata")
+        }
+        
+        // Create JWT claims from metadata
+        userIDValues := md.Get("user-id")
+        roleValues := md.Get("user-role")
+        
+        if len(userIDValues) == 0 || len(roleValues) == 0 {
+            return nil, status.Error(codes.Unauthenticated, "missing auth details")
+        }
+        
+        userID := userIDValues[0]
+        userRole := jwt.Role(roleValues[0])
+        
+        // Create claims and add to context
+        claims := &jwt.Claims{
+            UserID: userID,
+            Role:   userRole,
+        }
+        ctx = jwt.ContextWithClaims(ctx, claims)
+        
+        // Check permission
+        if err := rbacChecker.CheckPermission(ctx, requiredPermission); err != nil {
+            return nil, status.Error(codes.PermissionDenied, "permission denied")
+        }
+        
+        // Process request
+        return handler(ctx, req)
+    }
+}
+```
+
+## 6. Handling Edge Cases
+
+### 1. Token Expiry During Request
+- API Gateway returns 401 with clear message about token expiry
+- Client should use refresh token to obtain a new access token
+
+### 2. Service Unavailability
+- Gateway implements circuit breaker pattern for service calls
+- Fallback responses for critical auth operations
+
+### 3. Redis Failure
+- Fallback to token-intrinsic validation for authentication
+- Log and alert on Redis connectivity issues
+
+### 4. Multiple Device Login
+- Each device gets a unique session ID
+- Sessions stored separately in Redis
+- User can manage/revoke specific sessions
+
+### 5. Password Change/Account Compromise
+- Admin can force logout all sessions for a user
+- Add all active refresh tokens to blacklist
+
+## 7. Implementation Plan
+
+### Phase 1: Core Authentication
+1. Implement JWT token management (already done)
+2. Implement Redis session storage structure
+3. Create HTTP auth middleware in Gateway
+4. Create gRPC auth interceptors
+5. Implement Login/Register/Refresh/Logout flows
+
+### Phase 2: Service Integration
+1. Implement auth interceptors for each service
+2. Implement permission checks within services
+3. Add context propagation between services
+4. Set up proper error handling for auth failures
+
+### Phase 3: Testing and Refinement
+1. Create test scenarios for happy path and edge cases
+2. Optimize Redis calls and connection handling
+3. Add monitoring for auth failures and suspicious activities
+
+This approach aligns with industry standards by:
+1. Using JWT tokens for stateless authentication
+2. Maintaining a Redis session store for revocation capabilities
+3. Separating authentication from authorization concerns
+4. Using gRPC for efficient inter-service communication
+5. Implementing proper context propagation between services
+6. Following the principle of least privilege
+7. Enabling proper session management and security
+
+This plan is developer-friendly because it:
+1. Uses clear, consistent interfaces
+2. Makes extensive use of your existing code
+3. Centralizes auth logic in reusable components
+4. Provides helpful error messages
+5. Handles common edge cases gracefully

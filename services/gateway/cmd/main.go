@@ -1,44 +1,30 @@
-// services/gateway/cmd/main.go
 package main
 
 import (
-	"context"
-	"flag"
 	"fmt"
-	"os"
+	"log"
 
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/server"
 )
 
 func main() {
-	// Parse command line flags
-	configPath := flag.String("config", "configs/config.yaml", "Path to configuration file")
-	flag.Parse()
-
 	// Load configuration
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("Failed to load configuration: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Initialize logger
-	if err := logging.Initialize(cfg.Logging); err != nil {
-		fmt.Printf("Failed to initialize logger: %v\n", err)
-		os.Exit(1)
-	}
-	logger := logging.Get()
-
-	// Create and initialize server
-	srv := server.New(cfg)
-	if err := srv.Initialize(context.Background()); err != nil {
-		logger.Fatal("Failed to initialize server", logging.Error(err))
+	// Initialize and start server
+	srv, err := server.NewServer(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create server: %v", err)
 	}
 
-	// Start server
-	if err := srv.Start(); err != nil {
-		logger.Fatal("Server error", logging.Error(err))
+	// Start the server
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	log.Printf("Starting gateway server on %s", addr)
+	if err := srv.Run(addr); err != nil {
+		log.Fatalf("Server failed: %v", err)
 	}
 }

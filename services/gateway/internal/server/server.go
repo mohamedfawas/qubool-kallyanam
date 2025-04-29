@@ -1,133 +1,121 @@
-// services/gateway/internal/server/server.go
 package server
 
 import (
-	"context"
-	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/http/middleware"
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
-	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
-	handlers "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/health"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
 )
 
-// Server represents the API gateway server
+// Server represents the HTTP server
 type Server struct {
-	cfg          *config.Config
-	router       *gin.Engine
-	logger       logging.Logger
-	healthClient *clients.ServiceHealthClient
+	router *gin.Engine
+	config *config.Config
 }
 
-// New creates a new server instance
-func New(cfg *config.Config) *Server {
-	// Initialize logger
-	logger := logging.Get()
+// NewServer creates a new Server instance
+func NewServer(cfg *config.Config) (*Server, error) {
+	// Set Gin mode based on environment
+	if cfg.Service.Environment == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
-	// Setup Gin router with middlewares
-	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	router.Use(middleware.Logger(logger))
-	router.Use(middleware.Recovery(logger))
-	router.Use(middleware.CORS())
+	router.Use(gin.Recovery())
 
-	return &Server{
-		cfg:    cfg,
+	// Add CORS middleware
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
+	// Add logger middleware
+	router.Use(middleware.Logger(cfg))
+
+	// Create server
+	s := &Server{
 		router: router,
-		logger: logger,
-	}
-}
-
-// Initialize initializes the server and its dependencies
-func (s *Server) Initialize(ctx context.Context) error {
-	// Create service map for health client
-	serviceMap := map[string]string{
-		"auth":  s.cfg.Services.Auth,
-		"user":  s.cfg.Services.User,
-		"chat":  s.cfg.Services.Chat,
-		"admin": s.cfg.Services.Admin,
+		config: cfg,
 	}
 
-	// Initialize health client
-	s.healthClient = clients.NewServiceHealthClient(serviceMap, s.logger)
+	// Setup routes
+	s.setupRoutes()
 
-	// Register routes
-	s.registerRoutes()
-
-	return nil
+	return s, nil
 }
 
-// registerRoutes registers all API routes
-func (s *Server) registerRoutes() {
-	// Create handlers
-	healthHandler := handlers.NewHealthHandler(s.healthClient, s.logger)
-
-	// Health check endpoints
-	s.router.GET("/health", healthHandler.Check)
-	s.router.GET("/health/live", healthHandler.LivenessCheck)
-	s.router.GET("/health/ready", healthHandler.ReadinessCheck)
-	s.router.GET("/health/detailed", healthHandler.DetailedCheck)
-
-	// API v1 group
-	v1 := s.router.Group("/api/v1")
-	{
-		// Gateway endpoints will go here
-		v1.GET("/ping", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"message": "pong"})
+// setupRoutes sets up the routes for the server
+func (s *Server) setupRoutes() {
+	// Health check endpoint
+	s.router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"service": s.config.Service.Name,
+			"version": s.config.Service.Version,
 		})
+	})
+
+	// Setup API routes - v1
+	v1 := s.router.Group("/api/v1")
+
+	// Auth routes - no auth required
+	auth := v1.Group("/auth")
+	{
+		authHandler := handlers.NewAuthHandler()
+		auth.POST("/register", authHandler.Register)
+		auth.POST("/login", authHandler.Login)
+		auth.POST("/verify", authHandler.Verify)
+	}
+
+	// Routes requiring authentication
+	protected := v1.Group("/")
+	protected.Use(middleware.AuthRequired())
+
+	// User routes
+	user := protected.Group("/users")
+	{
+		userHandler := handlers.NewUserHandler()
+		user.GET("/profile", userHandler.GetProfile)
+		user.PUT("/profile", userHandler.UpdateProfile)
+		user.GET("/search", userHandler.Search)
+	}
+
+	// Chat routes
+	chat := protected.Group("/chats")
+	{
+		chatHandler := handlers.NewChatHandler()
+		chat.GET("/", chatHandler.GetChats)
+		chat.GET("/:id", chatHandler.GetChat)
+		chat.POST("/:id/messages", chatHandler.SendMessage)
+	}
+
+	// Admin routes
+	admin := v1.Group("/admin")
+	admin.Use(middleware.AdminRequired())
+	{
+		adminHandler := handlers.NewAdminHandler()
+		admin.GET("/users", adminHandler.ListUsers)
+		admin.PUT("/users/:id", adminHandler.UpdateUser)
 	}
 }
 
-// Start starts the server
-func (s *Server) Start() error {
-	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
+// Run starts the HTTP server
+func (s *Server) Run(addr string) error {
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.router,
+		Addr:           addr,
+		Handler:        s.router,
+		ReadTimeout:    time.Duration(s.config.Server.Timeout) * time.Second,
+		WriteTimeout:   time.Duration(s.config.Server.Timeout) * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
 
-	// Channel for server errors
-	errCh := make(chan error, 1)
-
-	// Start server in a goroutine
-	go func() {
-		s.logger.Info("Starting API gateway server",
-			logging.String("address", addr),
-		)
-
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
-		}
-	}()
-
-	// Channel for shutdown signals
-	shutdownCh := make(chan os.Signal, 1)
-	signal.Notify(shutdownCh, syscall.SIGINT, syscall.SIGTERM)
-
-	// Wait for shutdown signal or server error
-	select {
-	case err := <-errCh:
-		return err
-	case <-shutdownCh:
-		s.logger.Info("Received shutdown signal")
-	}
-
-	// Create a deadline for graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	// Shutdown the server
-	if err := srv.Shutdown(ctx); err != nil {
-		return fmt.Errorf("server shutdown failed: %w", err)
-	}
-
-	s.logger.Info("Server stopped gracefully")
-	return nil
+	return srv.ListenAndServe()
 }

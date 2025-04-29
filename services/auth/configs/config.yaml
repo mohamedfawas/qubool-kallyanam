@@ -1,29 +1,25 @@
-# services/auth/configs/config.yaml
-service:
-  name: auth-service
-  environment: development
-  version: "0.1.0"
-
 server:
   host: "0.0.0.0"
-  port: 50052
-  timeout:
-    read: 5s
-    write: 10s
-    idle: 120s
-    shutdown: 15s
+  port: 50010
+  read_timeout: 5s
+  write_timeout: 10s
+  idle_timeout: 120s
+
+grpc:
+  host: "0.0.0.0"
+  port: 50011
 
 postgres:
   host: "postgres"
   port: 5432
-  username: "postgres"
-  password: "password"
-  database: "auth"
-  ssl_mode: "disable"
+  username: "auth_service" # Service-specific user
+  password: "auth_password" # Service-specific password
+  database: "auth_db" # Service-specific database
   max_open_conns: 10
   max_idle_conns: 5
   conn_timeout: 5s
   query_timeout: 30s
+  ssl_mode: "disable"
 
 redis:
   host: "redis"
@@ -31,15 +27,21 @@ redis:
   password: ""
   db: 0
   pool_size: 10
-  min_idle_conns: 5
-  conn_timeout: 5s
-  read_timeout: 3s
-  write_timeout: 3s
+  min_idle_conns: 2
+  read_timeout: 1s
+  write_timeout: 1s
+  max_retries: 2
+
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  username: "your-email@gmail.com"
+  password: "your-app-password"
+  from_name: "Qubool Kallyanam"
+  from_email: "no-reply@quboolkallyanam.com"
+  timeout: 10s
 
 logging:
-  level: debug
-  development: true
-  encoding: console
-  output_paths:
-    - stdout
-  service_name: auth-service
+  level: "debug"
+  format: "console"
+  output: "stdout"

@@ -23,7 +23,7 @@ COPY --from=builder /app/auth-service .
 COPY --from=builder /app/services/auth/configs/config.yaml /app/configs/config.yaml
 RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
 USER appuser
-EXPOSE 50052
+EXPOSE 50010 50011
 ENV POSTGRES_HOST=postgres \
     POSTGRES_PORT=5432 \
     POSTGRES_USER=postgres \

@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/auth/v1;authv1";
+
+import "google/protobuf/timestamp.proto";
+
+service AuthService {
+  // RegisterUser creates a new user account
+  rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse);
+  
+  // Other existing methods like Login, Verify, etc.
+}
+
+// RegisterUserRequest is the request for registering a new user
+message RegisterUserRequest {
+  string email = 1;        // User's email address
+  string phone = 2;        // User's phone number (must be Indian number)
+  string password = 3;     // User's password (will be hashed)
+}
+
+// RegisterUserResponse is the response for the register operation
+message RegisterUserResponse {
+  bool success = 1;        // Whether registration initiation was successful
+  string message = 2;      // Human-readable message (e.g., "Verification OTP sent")
+  string error = 3;        // Error message if success is false
+  
+  // When the OTP in Redis (keyed by email) will expire
+  google.protobuf.Timestamp otp_expires_at = 4;
+
+  // When the client is next allowed to resend (rate-limit)
+  google.protobuf.Timestamp resend_allowed_at = 5;
+}

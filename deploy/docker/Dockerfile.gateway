@@ -20,10 +20,11 @@ FROM alpine:latest
 WORKDIR /app
 RUN apk --no-cache add ca-certificates tzdata wget jq && update-ca-certificates
 
-# Create simpler health check script
 RUN echo '#!/bin/sh\n\
-# Simple health check that only checks if the service is running\n\
-wget -q -O - http://localhost:8080/ping >/dev/null 2>&1\n\
+# Try multiple endpoints in sequence\n\
+wget -q -O - http://localhost:8080/api/v1/ping >/dev/null 2>&1 || \n\
+wget -q -O - http://localhost:8080/health >/dev/null 2>&1 || \n\
+wget -q -O - http://localhost:8080/health/live >/dev/null 2>&1\n\
 exit $?' > /app/healthcheck.sh && chmod +x /app/healthcheck.sh
 
 COPY --from=builder /app/gateway-service .
@@ -32,9 +33,9 @@ RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 8080
 # Environment variables for service discovery
-ENV SERVICES_USER=user-service:50051 \
-    SERVICES_AUTH=auth-service:50052 \
-    SERVICES_CHAT=chat-service:50053 \
-    SERVICES_ADMIN=admin-service:50054 \
+ENV SERVICE_USER_HTTP=user-service:50000 \
+    SERVICE_USER_GRPC=user-service:50001 \
+    SERVICE_AUTH_HTTP=auth-service:50010 \
+    SERVICE_AUTH_GRPC=auth-service:50011 \
     LOG_LEVEL=debug
 CMD ["./gateway-service", "--config=configs/config.yaml"]

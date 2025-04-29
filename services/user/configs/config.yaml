@@ -1,35 +1,38 @@
-# services/user/configs/config.yaml
 server:
   host: "0.0.0.0"
-  port: 50051
-  timeout_seconds: 30
+  port: 50000
+  read_timeout: 5s
+  write_timeout: 10s
+  idle_timeout: 120s
+
+grpc:
+  host: "0.0.0.0"
+  port: 50001
 
 postgres:
   host: "postgres"
   port: 5432
-  username: "postgres"
-  password: "password"
-  database: "users"
-  ssl_mode: "disable"
+  username: "user_service"
+  password: "user_password"
+  database: "user_db"
   max_open_conns: 10
   max_idle_conns: 5
-  
+  conn_timeout: 5s
+  query_timeout: 30s
+  ssl_mode: "disable"
+
 redis:
   host: "redis"
   port: 6379
   password: ""
   db: 0
   pool_size: 10
-  
-mongodb:
-  uri: "mongodb://mongodb:27017"
-  database: "users"
-  timeout_seconds: 10
-  
+  min_idle_conns: 2
+  read_timeout: 1s
+  write_timeout: 1s
+  max_retries: 2
+
 logging:
-  level: debug
-  development: true
-  encoding: console
-  output_paths:
-    - stdout
-  service_name: user-service
+  level: "debug"
+  format: "console"
+  output: "stdout"

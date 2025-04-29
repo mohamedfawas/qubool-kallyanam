@@ -9,7 +9,16 @@ config/*.env
 !config/.env.example
 
 deploy/compose/docker-compose.yaml
+deploy/compose/docker-compose.auth.yaml
+deploy/compose/docker-compose.admin.yaml
 deploy/compose/.env
 
 config/*.yaml
 !config/config.yaml.example
+
+
+services/auth/configs/config.yaml
+services/user/configs/config.yaml
+services/chat/configs/config.yaml
+services/admin/configs/config.yaml
+services/gateway/configs/config.yaml

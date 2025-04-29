@@ -1,0 +1,18 @@
+FROM golang:1.23.4-alpine AS builder
+
+
+# Install migrate tool and PostgreSQL client
+RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest && \
+    apk add --no-cache postgresql-client
+
+# Working directory
+WORKDIR /app
+
+# Copy the entrypoint script
+COPY deploy/docker/entrypoint.sh /app/entrypoint.sh
+
+# Make sure it's executable
+RUN chmod +x /app/entrypoint.sh
+
+# Set entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -10,10 +10,10 @@ COPY services/user/ /app/services/user/
 # Add a replace directive to find the pkg module locally
 RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/user/go.mod
 
-# Build the user service
+# Build without using workspace
 RUN cd /app/services/user && \
     go mod tidy && \
-    CGO_ENABLED=0 GOOS=linux go build -o /app/user-service ./cmd
+    CGO_ENABLED=0 GOOS=linux go build -o /app/user-service ./cmd/main.go
 
 # Runtime stage
 FROM alpine:latest
@@ -23,15 +23,14 @@ COPY --from=builder /app/user-service .
 COPY --from=builder /app/services/user/configs/config.yaml /app/configs/config.yaml
 RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
 USER appuser
-EXPOSE 50051
+EXPOSE 50000 50001
 ENV POSTGRES_HOST=postgres \
     POSTGRES_PORT=5432 \
-    POSTGRES_USER=postgres \
-    POSTGRES_PASSWORD=password \
-    POSTGRES_DB=users \
+    POSTGRES_USER=user_service \
+    POSTGRES_PASSWORD=user_password \
+    POSTGRES_DB=user_db \
     REDIS_HOST=redis \
     REDIS_PORT=6379 \
-    MONGODB_HOST=mongodb \
-    MONGODB_PORT=27017 \
-    MONGODB_DATABASE=users
+    REDIS_PASSWORD="" \
+    REDIS_DB=0
 CMD ["./user-service", "--config=configs/config.yaml"]
