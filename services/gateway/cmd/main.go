@@ -1,30 +1,36 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
+	authclient "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/server"
 )
 
 func main() {
-	// Load configuration
+	// Initialize configuration
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize and start server
-	srv, err := server.NewServer(cfg)
+	// Initialize service clients
+	authClient, err := authclient.NewClient(cfg.Services.Auth.Address)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		log.Fatalf("Failed to create auth client: %v", err)
 	}
+	defer authClient.Close()
+
+	// Create and setup server
+	srv := server.NewServer(cfg, authClient)
+	srv.SetupRoutes()
 
 	// Start the server
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("Starting gateway server on %s", addr)
-	if err := srv.Run(addr); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	if err := srv.Start(); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
+
+	// Wait for shutdown signal
+	srv.WaitForShutdown()
 }

@@ -9,10 +9,10 @@ RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
 WORKDIR /app
 
 # Copy the entrypoint script
-COPY deploy/docker/entrypoint.sh /app/entrypoint.sh
+COPY deploy/docker/migrate.sh /app/migrate.sh
 
 # Make sure it's executable
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/migrate.sh
 
 # Set entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/migrate.sh"]

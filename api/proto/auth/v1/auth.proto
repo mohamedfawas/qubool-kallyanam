@@ -2,33 +2,71 @@ syntax = "proto3";
 
 package auth.v1;
 
-option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/auth/v1;authv1";
+option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/proto/auth/v1;authv1";
 
 import "google/protobuf/timestamp.proto";
 
 service AuthService {
-  // RegisterUser creates a new user account
+  // Health check endpoint
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // Register a new user
   rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse);
   
-  // Other existing methods like Login, Verify, etc.
-}
-
-// RegisterUserRequest is the request for registering a new user
-message RegisterUserRequest {
-  string email = 1;        // User's email address
-  string phone = 2;        // User's phone number (must be Indian number)
-  string password = 3;     // User's password (will be hashed)
-}
-
-// RegisterUserResponse is the response for the register operation
-message RegisterUserResponse {
-  bool success = 1;        // Whether registration initiation was successful
-  string message = 2;      // Human-readable message (e.g., "Verification OTP sent")
-  string error = 3;        // Error message if success is false
+  // Login with email/phone and password
+  rpc Login(LoginRequest) returns (LoginResponse);
   
-  // When the OTP in Redis (keyed by email) will expire
-  google.protobuf.Timestamp otp_expires_at = 4;
+  // Verify OTP during registration
+  rpc VerifyRegistration(VerifyRegistrationRequest) returns (VerifyRegistrationResponse);
+}
 
-  // When the client is next allowed to resend (rate-limit)
+// Health check messages
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;  // "UP", "DOWN", etc.
+}
+
+// Registration messages
+message RegisterUserRequest {
+  string email = 1;
+  string phone = 2;
+  string password = 3;
+}
+
+message RegisterUserResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  google.protobuf.Timestamp otp_expires_at = 4;
   google.protobuf.Timestamp resend_allowed_at = 5;
+}
+
+// Login messages
+message LoginRequest {
+  string identifier = 1;  // Email or phone
+  string password = 2;
+}
+
+message LoginResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  string access_token = 4;
+  string refresh_token = 5;
+  google.protobuf.Timestamp token_expires_at = 6;
+}
+
+// Verification messages
+message VerifyRegistrationRequest {
+  string email = 1;
+  string otp = 2;
+}
+
+message VerifyRegistrationResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  string access_token = 4;  // JWT token if verified successfully
+  string refresh_token = 5;
 }

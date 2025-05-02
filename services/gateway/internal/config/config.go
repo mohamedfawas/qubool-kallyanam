@@ -3,68 +3,63 @@ package config
 import (
 	"os"
 
-	"gopkg.in/yaml.v3"
+	"github.com/gin-gonic/gin"
 )
 
-// Config represents the application configuration
+// Config holds all configuration for the gateway service
 type Config struct {
-	Service  ServiceConfig  `yaml:"service"`
-	Server   ServerConfig   `yaml:"server"`
-	Services ServicesConfig `yaml:"services"`
-	Logging  LoggingConfig  `yaml:"logging"`
+	Server   ServerConfig
+	Services ServicesConfig
 }
 
-// ServiceConfig contains service metadata
-type ServiceConfig struct {
-	Name        string `yaml:"name"`
-	Environment string `yaml:"environment"`
-	Version     string `yaml:"version"`
-}
-
-// ServerConfig contains HTTP server configuration
+// ServerConfig holds server-related configuration
 type ServerConfig struct {
-	Host    string `yaml:"host"`
-	Port    int    `yaml:"port"`
-	Timeout int    `yaml:"timeout"`
+	Address string
+	Mode    string
 }
 
-// ServicesConfig contains endpoints for microservices
+// ServicesConfig holds configurations for all services
 type ServicesConfig struct {
-	AuthHTTP  string `yaml:"auth_http"`
-	AuthGRPC  string `yaml:"auth_grpc"`
-	UserHTTP  string `yaml:"user_http"`
-	UserGRPC  string `yaml:"user_grpc"`
-	ChatHTTP  string `yaml:"chat_http"`
-	ChatGRPC  string `yaml:"chat_grpc"`
-	AdminHTTP string `yaml:"admin_http"`
-	AdminGRPC string `yaml:"admin_grpc"`
+	Auth  ServiceConfig
+	User  ServiceConfig
+	Admin ServiceConfig
+	Chat  ServiceConfig
 }
 
-// LoggingConfig contains logging configuration
-type LoggingConfig struct {
-	Level       string   `yaml:"level"`
-	Development bool     `yaml:"development"`
-	Encoding    string   `yaml:"encoding"`
-	OutputPaths []string `yaml:"output_paths"`
-	ServiceName string   `yaml:"service_name"`
+// ServiceConfig holds configuration for a service
+type ServiceConfig struct {
+	Address string
 }
 
-// Load loads configuration from file
+// Load loads configuration from environment variables
 func Load() (*Config, error) {
-	configPath := "configs/config.yaml"
-	if path := os.Getenv("CONFIG_PATH"); path != "" {
-		configPath = path
-	}
+	return &Config{
+		Server: ServerConfig{
+			Address: getEnv("SERVER_ADDRESS", ":8080"),
+			Mode:    getEnv("GIN_MODE", gin.ReleaseMode),
+		},
+		Services: ServicesConfig{
+			Auth: ServiceConfig{
+				Address: getEnv("AUTH_SERVICE_ADDRESS", "localhost:50051"),
+			},
+			User: ServiceConfig{
+				Address: getEnv("USER_SERVICE_ADDRESS", "localhost:50052"),
+			},
+			Admin: ServiceConfig{
+				Address: getEnv("ADMIN_SERVICE_ADDRESS", "localhost:50053"),
+			},
+			Chat: ServiceConfig{
+				Address: getEnv("CHAT_SERVICE_ADDRESS", "localhost:50054"),
+			},
+		},
+	}, nil
+}
 
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
+// getEnv gets an environment variable or returns a default value
+func getEnv(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
 	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-
-	return &cfg, nil
+	return value
 }

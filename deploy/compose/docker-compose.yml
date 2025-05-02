@@ -246,6 +246,9 @@ services:
       # - SERVICE_USER_GRPC=user-service:50001
       - SERVICE_AUTH_HTTP=auth-service:50010
       - SERVICE_AUTH_GRPC=auth-service:50011
+      - SERVER_ADDRESS=:8080
+      - GIN_MODE=debug
+      - AUTH_SERVICE_ADDRESS=auth-service:50011
       # - SERVICE_CHAT_HTTP=chat-service:50020
       # - SERVICE_CHAT_GRPC=chat-service:50021
       # - SERVICE_ADMIN_HTTP=admin-service:50030

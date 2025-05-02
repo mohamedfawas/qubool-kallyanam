@@ -1,36 +1,45 @@
-# Build stage
 FROM golang:1.23.4-alpine AS builder
 
 WORKDIR /app
 
-# Copy only what's needed for this service
-COPY pkg/ /app/pkg/
-COPY services/auth/ /app/services/auth/
+# Install necessary build tools
+RUN apk add --no-cache git
 
-# Add a replace directive to find the pkg module locally
-RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/auth/go.mod
+# Copy the entire services directory
+COPY services/ ./services/
+COPY pkg/ ./pkg/
 
-# Build without using workspace
-RUN cd /app/services/auth && \
-    go mod tidy && \
-    CGO_ENABLED=0 GOOS=linux go build -o /app/auth-service ./cmd/main.go
+# Download dependencies
+WORKDIR /app/services/auth
+RUN go mod download
 
-# Runtime stage
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/auth-service ./cmd/main.go
+
+# Create final lightweight image
 FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
 WORKDIR /app
-RUN apk --no-cache add ca-certificates tzdata wget && update-ca-certificates
+
+# Copy binary from builder stage
 COPY --from=builder /app/auth-service .
-COPY --from=builder /app/services/auth/configs/config.yaml /app/configs/config.yaml
-RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
-USER appuser
-EXPOSE 50010 50011
-ENV POSTGRES_HOST=postgres \
+
+# Environment variables
+ENV SERVER_HOST=0.0.0.0 \
+    SERVER_PORT=50011 \
+    POSTGRES_HOST=postgres \
     POSTGRES_PORT=5432 \
-    POSTGRES_USER=postgres \
-    POSTGRES_PASSWORD=password \
-    POSTGRES_DB=auth\
+    POSTGRES_USER=auth_service \
+    POSTGRES_PASSWORD=auth_password \
+    POSTGRES_DB=auth_db \
+    POSTGRES_SSLMODE=disable \
     REDIS_HOST=redis \
     REDIS_PORT=6379 \
-    REDIS_PASSWORD="" \
+    REDIS_PASSWORD= \
     REDIS_DB=0
-CMD ["./auth-service", "--config=configs/config.yaml"]
+
+EXPOSE 50010 50011
+
+CMD ["./auth-service"]

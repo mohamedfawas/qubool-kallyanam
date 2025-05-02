@@ -1,121 +1,136 @@
 package server
 
 import (
+	"context"
+	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+
+	authclient "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
-	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers"
-	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
+	authhandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
 )
 
-// Server represents the HTTP server
+// Server represents the HTTP server for the gateway service
 type Server struct {
-	router *gin.Engine
-	config *config.Config
+	cfg        *config.Config
+	router     *gin.Engine
+	httpServer *http.Server
+	authClient *authclient.Client
 }
 
-// NewServer creates a new Server instance
-func NewServer(cfg *config.Config) (*Server, error) {
-	// Set Gin mode based on environment
-	if cfg.Service.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
+// NewServer creates a new HTTP server instance
+func NewServer(cfg *config.Config, authClient *authclient.Client) *Server {
+	// Set Gin mode
+	gin.SetMode(cfg.Server.Mode)
+
+	// Initialize Gin router
+	router := gin.Default()
+
+	// Create the server
+	return &Server{
+		cfg:        cfg,
+		router:     router,
+		authClient: authClient,
 	}
+}
 
-	router := gin.New()
-	router.Use(gin.Recovery())
+// SetupRoutes configures all the routes for the server
+func (s *Server) SetupRoutes() {
 
-	// Add CORS middleware
-	router.Use(cors.New(cors.Config{
+	// Add CORS middleware first
+	s.router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
-
-	// Add logger middleware
-	router.Use(middleware.Logger(cfg))
-
-	// Create server
-	s := &Server{
-		router: router,
-		config: cfg,
-	}
-
-	// Setup routes
-	s.setupRoutes()
-
-	return s, nil
-}
-
-// setupRoutes sets up the routes for the server
-func (s *Server) setupRoutes() {
-	// Health check endpoint
-	s.router.GET("/health", func(c *gin.Context) {
+	// Simple health check endpoints
+	s.router.GET("/health/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"service": s.config.Service.Name,
-			"version": s.config.Service.Version,
+			"status":  "UP",
+			"service": "gateway",
 		})
 	})
 
-	// Setup API routes - v1
-	v1 := s.router.Group("/api/v1")
+	s.router.GET("/health/ready", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "READY",
+			"service": "gateway",
+		})
+	})
 
-	// Auth routes - no auth required
-	auth := v1.Group("/auth")
-	{
-		authHandler := handlers.NewAuthHandler()
-		auth.POST("/register", authHandler.Register)
-		auth.POST("/login", authHandler.Login)
-		auth.POST("/verify", authHandler.Verify)
-	}
+	// // Simple test endpoint
+	// s.router.GET("/ping", func(c *gin.Context) {
+	// 	c.JSON(http.StatusOK, gin.H{
+	// 		"message": "pong",
+	// 	})
+	// })
 
-	// Routes requiring authentication
-	protected := v1.Group("/")
-	protected.Use(middleware.AuthRequired())
+	// API endpoints
+	apiGroup := s.router.Group("/api/v1")
 
-	// User routes
-	user := protected.Group("/users")
-	{
-		userHandler := handlers.NewUserHandler()
-		user.GET("/profile", userHandler.GetProfile)
-		user.PUT("/profile", userHandler.UpdateProfile)
-		user.GET("/search", userHandler.Search)
-	}
+	// Register auth handler
+	authHandler := authhandler.NewHandler(s.authClient)
+	authHandler.RegisterRoutes(apiGroup)
 
-	// Chat routes
-	chat := protected.Group("/chats")
-	{
-		chatHandler := handlers.NewChatHandler()
-		chat.GET("/", chatHandler.GetChats)
-		chat.GET("/:id", chatHandler.GetChat)
-		chat.POST("/:id/messages", chatHandler.SendMessage)
-	}
-
-	// Admin routes
-	admin := v1.Group("/admin")
-	admin.Use(middleware.AdminRequired())
-	{
-		adminHandler := handlers.NewAdminHandler()
-		admin.GET("/users", adminHandler.ListUsers)
-		admin.PUT("/users/:id", adminHandler.UpdateUser)
+	// Log all registered routes for debugging
+	for _, route := range s.router.Routes() {
+		log.Printf("Registered route: %s %s", route.Method, route.Path)
 	}
 }
 
-// Run starts the HTTP server
-func (s *Server) Run(addr string) error {
-	srv := &http.Server{
-		Addr:           addr,
-		Handler:        s.router,
-		ReadTimeout:    time.Duration(s.config.Server.Timeout) * time.Second,
-		WriteTimeout:   time.Duration(s.config.Server.Timeout) * time.Second,
-		MaxHeaderBytes: 1 << 20, // 1 MB
+// Start starts the HTTP server
+func (s *Server) Start() error {
+	// Setup HTTP server
+	s.httpServer = &http.Server{
+		Addr:    s.cfg.Server.Address,
+		Handler: s.router,
 	}
 
-	return srv.ListenAndServe()
+	// Start HTTP server in a goroutine
+	go func() {
+		log.Printf("Gateway server starting on %s", s.cfg.Server.Address)
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start gateway server: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+// Shutdown gracefully shuts down the server
+func (s *Server) Shutdown() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// WaitForShutdown waits for an interrupt signal to gracefully shut down the server
+func (s *Server) WaitForShutdown() {
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down gateway server...")
+
+	if err := s.Shutdown(); err != nil {
+		log.Fatalf("Server shutdown failed: %v", err)
+	}
+
+	log.Println("Gateway server stopped")
 }
