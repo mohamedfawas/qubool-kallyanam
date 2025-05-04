@@ -1,65 +1,59 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
-	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
-// Config holds all configuration for the gateway service
+// Config represents the application configuration
 type Config struct {
-	Server   ServerConfig
-	Services ServicesConfig
+	Environment string         `mapstructure:"environment"`
+	HTTP        HTTPConfig     `mapstructure:"http"`
+	Services    ServicesConfig `mapstructure:"services"`
 }
 
-// ServerConfig holds server-related configuration
-type ServerConfig struct {
-	Address string
-	Mode    string
+// HTTPConfig represents HTTP server configuration
+type HTTPConfig struct {
+	Port             int `mapstructure:"port"`
+	ReadTimeoutSecs  int `mapstructure:"read_timeout_secs"`
+	WriteTimeoutSecs int `mapstructure:"write_timeout_secs"`
+	IdleTimeoutSecs  int `mapstructure:"idle_timeout_secs"`
 }
 
-// ServicesConfig holds configurations for all services
+// ServicesConfig holds addresses of all services
 type ServicesConfig struct {
-	Auth  ServiceConfig
-	User  ServiceConfig
-	Admin ServiceConfig
-	Chat  ServiceConfig
+	Auth ServiceConfig `mapstructure:"auth"`
+	User ServiceConfig `mapstructure:"user"`
 }
 
-// ServiceConfig holds configuration for a service
+// ServiceConfig represents a service configuration
 type ServiceConfig struct {
-	Address string
+	Address string `mapstructure:"address"`
 }
 
-// Load loads configuration from environment variables
-func Load() (*Config, error) {
-	return &Config{
-		Server: ServerConfig{
-			Address: getEnv("SERVER_ADDRESS", ":8080"),
-			Mode:    getEnv("GIN_MODE", gin.ReleaseMode),
-		},
-		Services: ServicesConfig{
-			Auth: ServiceConfig{
-				Address: getEnv("AUTH_SERVICE_ADDRESS", "localhost:50051"),
-			},
-			User: ServiceConfig{
-				Address: getEnv("USER_SERVICE_ADDRESS", "localhost:50052"),
-			},
-			Admin: ServiceConfig{
-				Address: getEnv("ADMIN_SERVICE_ADDRESS", "localhost:50053"),
-			},
-			Chat: ServiceConfig{
-				Address: getEnv("CHAT_SERVICE_ADDRESS", "localhost:50054"),
-			},
-		},
-	}, nil
-}
+// LoadConfig loads configuration from file and environment variables
+func LoadConfig(path string) (*Config, error) {
+	viper.SetConfigFile(path)
+	viper.AutomaticEnv()
 
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
+	if err := viper.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-	return value
+
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Override with environment variables if they exist
+	if env := os.Getenv("ENVIRONMENT"); env != "" {
+		config.Environment = env
+	}
+	if authAddr := os.Getenv("AUTH_SERVICE_ADDRESS"); authAddr != "" {
+		config.Services.Auth.Address = authAddr
+	}
+
+	return &config, nil
 }

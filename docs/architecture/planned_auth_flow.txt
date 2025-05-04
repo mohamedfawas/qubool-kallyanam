@@ -1,0 +1,322 @@
+Here's a detailed API documentation plan following industry standards, covering all authentication flows and endpoints:
+
+---
+
+# **Authentication API Documentation**
+
+## **1. User Registration**
+**Endpoint**: `POST /auth/register`  
+**Flow**:
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant A as Auth Service
+    participant R as Redis
+    participant P as Postgres
+
+    C->>G: Send phone/email/password
+    G->>A: Forward request
+    A->>P: Check existing users
+    A->>P: Store in pending_registrations
+    A->>R: SET otp:<email> [OTP] EX 300
+    A->>C: Return 202 (OTP sent)
+```
+
+**Request**:
+```json
+{
+  "phone": "+919876543210",
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+**Success Response**:
+```json
+HTTP 202 Accepted
+{
+  "message": "OTP sent to registered email"
+}
+```
+
+**Internal Process**:
+1. Validate phone/email format
+2. Check uniqueness in both `users` and `pending_registrations`
+3. Hash password with bcrypt (cost 12)
+4. Store in `pending_registrations` (1hr TTL)
+5. Generate 6-digit OTP, store in Redis
+6. Send verification email
+
+---
+
+## **2. OTP Verification**
+**Endpoint**: `POST /auth/verify`  
+**Flow**:
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant A as Auth Service
+    participant R as Redis
+    participant P as Postgres
+
+    C->>G: Send email + OTP
+    G->>A: Forward request
+    A->>R: GET otp:<email>
+    alt OTP Match
+        A->>P: Move to users table
+        A->>R: DEL otp:<email>
+        A->>C: Return 201
+    else OTP Mismatch
+        A->>C: Return 401
+    end
+```
+
+**Request**:
+```json
+{
+  "email": "user@example.com",
+  "otp": "458792"
+}
+```
+
+**Success Response**:
+```json
+HTTP 201 Created
+{
+  "message": "Account verified successfully"
+}
+```
+
+**Error Responses**:
+- `401 Unauthorized`: Invalid/expired OTP
+- `404 Not Found`: No pending registration
+
+---
+
+## **3. User Login**
+**Endpoint**: `POST /auth/login`  
+**Flow**:
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant A as Auth Service
+    participant P as Postgres
+    participant R as Redis
+
+    C->>G: Send credentials
+    G->>A: Forward request
+    A->>P: Verify email exists
+    A->>P: Compare password hashes
+    A->>R: SET refresh:<user_id> [token] EX 604800
+    A->>C: Return JWT pair
+```
+
+**Request**:
+```json
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+**Success Response**:
+```json
+HTTP 200 OK
+{
+  "access_token": "eyJhbGciOi...",
+  "refresh_token": "eyJhbGciOi...",
+  "expires_in": 900
+}
+```
+
+**Security**:
+- 3 failed attempts → 1hr lockout (tracked in Redis)
+- Password requirements: 8+ chars, 1+ uppercase, 1+ number
+
+---
+
+## **4. Admin Login**
+**Endpoint**: `POST /auth/admin/login`  
+**Request**:
+```json
+{
+  "email": "admin@matrimony.com",
+  "password": "AdminPass123!"
+}
+```
+
+**Special Handling**:
+1. Check `is_admin=true` in users table
+2. Generate tokens with `"role": "ADMIN"`
+3. Access token TTL: 15 minutes (enhanced security)
+
+---
+
+## **5. Token Refresh**
+**Endpoint**: `POST /auth/refresh`  
+**Flow**:
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant A as Auth Service
+    participant R as Redis
+
+    C->>G: Send refresh token
+    G->>A: Forward request
+    A->>R: GET refresh:<user_id>
+    alt Token Match
+        A->>A: Generate new access token
+        A->>R: Update refresh token
+        A->>C: Return new tokens
+    else Token Mismatch
+        A->>C: Return 401
+    end
+```
+
+**Request**:
+```json
+{
+  "refresh_token": "eyJhbGciOi..."
+}
+```
+
+**Response**:
+```json
+HTTP 200 OK
+{
+  "access_token": "new.eyJhbGciOi...",
+  "expires_in": 900
+}
+```
+
+**Security**:
+- Refresh token rotation: New refresh token issued on each use
+- Old refresh tokens immediately invalidated
+
+---
+
+## **6. Logout**
+**Endpoint**: `POST /auth/logout`  
+**Flow**:
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant A as Auth Service
+    participant R as Redis
+
+    C->>G: Send access token
+    G->>A: Forward request
+    A->>R: SET blacklist:<jti> 1 EX 900
+    A->>R: DEL refresh:<user_id>
+    A->>C: Return 204
+```
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response**:
+```json
+HTTP 204 No Content
+```
+
+---
+
+## **7. Logout All Sessions (Optional)**
+**Endpoint**: `POST /auth/logout/all`  
+**Flow**:
+1. Delete all refresh tokens for user
+2. Bulk-add access tokens to blacklist
+
+**Implementation**:
+```redis
+EVAL "local keys = redis.call('KEYS', 'refresh:*<user_id>') 
+      for _,k in ipairs(keys) do redis.call('DEL', k) end" 0
+```
+
+---
+
+# **Security Architecture**
+
+## **Data Flow Diagram**
+```mermaid
+graph LR
+    C[Client] --> G[Gateway]
+    G -->|Validate JWT| A[Auth Service]
+    A -->|Token Data| R[Redis]
+    A -->|User Data| P[Postgres]
+    G -->|Valid Requests| S[Services]
+```
+
+## **Key Security Measures**
+1. **JWT Validation**:
+   - Signature verification (HMAC HS256/HS512)
+   - Issuer claim validation
+   - Audience claim validation
+
+2. **Rate Limiting** (Redis-based):
+   ```redis
+   INCR rate_limit:<ip>:login
+   EXPIRE rate_limit:<ip>:login 3600
+   ```
+
+3. **Cookie Settings** (For Web):
+   ```http
+   Set-Cookie: access_token=...; HttpOnly; Secure; SameSite=Strict; Path=/
+   ```
+
+4. **Password Security**:
+   - Bcrypt hashing (cost 12)
+   - Minimum entropy check
+
+---
+
+# **Error Handling Standard**
+
+| HTTP Code | Error Code           | Example Scenario                     |
+|-----------|----------------------|--------------------------------------|
+| 400       | invalid_request      | Missing required fields             |
+| 401       | invalid_credentials  | Wrong email/password                |
+| 403       | insufficient_scope   | User accessing admin endpoint       |
+| 429       | too_many_requests    | Rate limit exceeded                 |
+| 500       | internal_error       | Database connection failed          |
+
+**Example Error Response**:
+```json
+{
+  "error": "invalid_token",
+  "error_description": "Token has expired",
+  "error_uri": "/docs/errors#invalid_token"
+}
+```
+
+---
+
+# **Scheduled Maintenance**
+
+1. **Pending Registrations Cleanup** (Hourly):
+   ```sql
+   DELETE FROM pending_registrations 
+   WHERE created_at < NOW() - INTERVAL '1 hour';
+   ```
+
+2. **Token Blacklist Pruning** (Daily):
+   ```bash
+   redis-cli --scan --pattern 'blacklist:*' | xargs redis-cli DEL
+   ```
+
+3. **Session Audit** (Weekly):
+   ```sql
+   DELETE FROM sessions 
+   WHERE last_activity < NOW() - INTERVAL '30 days';
+   ```
+
+---
+
+This documentation provides all necessary details for an AI agent to implement the system while maintaining security and scalability. 

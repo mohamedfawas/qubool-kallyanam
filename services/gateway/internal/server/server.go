@@ -2,135 +2,90 @@ package server
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
-	authclient "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
-	authhandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
+	authHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
 )
 
-// Server represents the HTTP server for the gateway service
+// Server represents the HTTP server
 type Server struct {
-	cfg        *config.Config
-	router     *gin.Engine
+	config     *config.Config
+	logger     logging.Logger
 	httpServer *http.Server
-	authClient *authclient.Client
+	router     *gin.Engine
+	authClient *auth.Client
 }
 
-// NewServer creates a new HTTP server instance
-func NewServer(cfg *config.Config, authClient *authclient.Client) *Server {
-	// Set Gin mode
-	gin.SetMode(cfg.Server.Mode)
+// NewServer creates a new server instance
+func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
+	// Set Gin mode based on environment
+	if cfg.Environment == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
-	// Initialize Gin router
-	router := gin.Default()
+	// Create router
+	router := gin.New()
 
-	// Create the server
-	return &Server{
-		cfg:        cfg,
+	// Create auth client
+	authClient, err := auth.NewClient(cfg.Services.Auth.Address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth client: %w", err)
+	}
+
+	// Create HTTP server
+	httpServer := &http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.HTTP.Port),
+		Handler:      router,
+		ReadTimeout:  time.Second * time.Duration(cfg.HTTP.ReadTimeoutSecs),
+		WriteTimeout: time.Second * time.Duration(cfg.HTTP.WriteTimeoutSecs),
+		IdleTimeout:  time.Second * time.Duration(cfg.HTTP.IdleTimeoutSecs),
+	}
+
+	server := &Server{
+		config:     cfg,
+		logger:     logger,
+		httpServer: httpServer,
 		router:     router,
 		authClient: authClient,
 	}
+
+	// Initialize routes
+	server.setupRoutes()
+
+	return server, nil
 }
 
-// SetupRoutes configures all the routes for the server
-func (s *Server) SetupRoutes() {
+// setupRoutes configures all routes
+func (s *Server) setupRoutes() {
+	// Create handlers
+	authHandler := authHandler.NewHandler(s.authClient, s.logger)
 
-	// Add CORS middleware first
-	s.router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
-	// Simple health check endpoints
-	s.router.GET("/health/live", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "UP",
-			"service": "gateway",
-		})
-	})
-
-	s.router.GET("/health/ready", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "READY",
-			"service": "gateway",
-		})
-	})
-
-	// // Simple test endpoint
-	// s.router.GET("/ping", func(c *gin.Context) {
-	// 	c.JSON(http.StatusOK, gin.H{
-	// 		"message": "pong",
-	// 	})
-	// })
-
-	// API endpoints
-	apiGroup := s.router.Group("/api/v1")
-
-	// Register auth handler
-	authHandler := authhandler.NewHandler(s.authClient)
-	authHandler.RegisterRoutes(apiGroup)
-
-	// Log all registered routes for debugging
-	for _, route := range s.router.Routes() {
-		log.Printf("Registered route: %s %s", route.Method, route.Path)
-	}
+	// Setup router
+	SetupRouter(s.router, authHandler, s.logger)
 }
 
 // Start starts the HTTP server
 func (s *Server) Start() error {
-	// Setup HTTP server
-	s.httpServer = &http.Server{
-		Addr:    s.cfg.Server.Address,
-		Handler: s.router,
-	}
-
-	// Start HTTP server in a goroutine
-	go func() {
-		log.Printf("Gateway server starting on %s", s.cfg.Server.Address)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start gateway server: %v", err)
-		}
-	}()
-
-	return nil
+	s.logger.Info("Starting HTTP server", "port", s.config.HTTP.Port)
+	return s.httpServer.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server
-func (s *Server) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+// Stop stops the HTTP server
+func (s *Server) Stop(ctx context.Context) error {
+	s.logger.Info("Stopping HTTP server")
 
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return err
+	// Close clients
+	if s.authClient != nil {
+		s.authClient.Close()
 	}
 
-	return nil
-}
-
-// WaitForShutdown waits for an interrupt signal to gracefully shut down the server
-func (s *Server) WaitForShutdown() {
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gateway server...")
-
-	if err := s.Shutdown(); err != nil {
-		log.Fatalf("Server shutdown failed: %v", err)
-	}
-
-	log.Println("Gateway server stopped")
+	// Shutdown HTTP server
+	return s.httpServer.Shutdown(ctx)
 }

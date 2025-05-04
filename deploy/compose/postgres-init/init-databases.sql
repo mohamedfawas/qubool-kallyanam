@@ -1,0 +1,3 @@
+CREATE DATABASE qubool_kallyanam_auth;
+CREATE DATABASE qubool_kallyanam_admin;
+CREATE DATABASE qubool_kallyanam_user;

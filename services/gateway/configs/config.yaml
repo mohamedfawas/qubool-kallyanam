@@ -1,0 +1,17 @@
+environment: development
+
+http:
+  port: 8080
+  read_timeout_secs: 10
+  write_timeout_secs: 10
+  idle_timeout_secs: 60
+
+services:
+  auth:
+    address: localhost:50051
+  user:
+    address: localhost:50052
+  admin:
+    address: localhost:50053
+  chat:
+    address: localhost:50054

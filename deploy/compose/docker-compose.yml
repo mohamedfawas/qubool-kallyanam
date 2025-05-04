@@ -1,273 +1,198 @@
 services:
-  # Database services
+  # Databases
   postgres:
-    image: postgres:15-alpine
-    container_name: postgres
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: qubool_kallyanam
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_PASSWORD: password
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
+      - ./postgres-init:/docker-entrypoint-initdb.d
     ports:
-      - "5432:5432" 
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
+      test: [
+        "CMD-SHELL",
+        "pg_isready -U postgres && psql -U postgres -lqt | cut -d \\| -f 1 | grep -qw qubool_kallyanam_auth && psql -U postgres -lqt | cut -d \\| -f 1 | grep -qw qubool_kallyanam_admin && psql -U postgres -lqt | cut -d \\| -f 1 | grep -qw qubool_kallyanam_user"
+      ]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 15
+      start_period: 20s
     networks:
-      - qubool-net
+      - quboolkallyanam-network
 
   redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
+    image: redis:alpine
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - qubool-net
+      - quboolkallyanam-network
 
-  # mongodb:
-  #   image: mongo:6-jammy
-  #   container_name: mongodb
-  #   ports:
-  #   - "27017:27017"  # Explicitly expose MongoDB port
-  #   volumes:
-  #     - mongodb_data:/data/db
-  #     - ./init-scripts/mongodb:/docker-entrypoint-initdb.d
-  #   healthcheck:
-  #     test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   networks:
-  #     - qubool-net
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - quboolkallyanam-network
 
-  # Application services
-  auth-migrate:
+  # Microservices
+  auth-migrations:
     build:
-      context: ../../
-      dockerfile: deploy/docker/Dockerfile.migrate
-      args:
-        SERVICE: auth
+      context: .
+      dockerfile: deploy/docker/Dockerfile.migration
     environment:
-      - SERVICE_NAME=auth
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASSWORD=password
-      - DB_NAME=auth_db
-      - SERVICE_USER=auth_service
-      - SERVICE_PASSWORD=auth_password
+      - DB_PASSWORD=postgres
+      - DB_NAME=qubool_kallyanam_auth
+      - DB_SSLMODE=disable
+      - MIGRATIONS_DIR=/app/migrations
     volumes:
-      - ../../services/auth/migrations/postgres:/migrations
+      - ./services/auth/migrations/postgres:/app/migrations
     depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - qubool-net
-    # This is key - container stops after migrations are done
-    restart: "no"
-
-  # auth-service:
-  auth-service:
+      - postgres
+    restart: on-failure
+  auth:
     build:
       context: ../../
       dockerfile: deploy/docker/Dockerfile.auth
+    environment:
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
     ports:
-      - "50010:50010"  # HTTP 
-      - "50011:50011"  # gRPC
+      - "50051:50051"
+    restart: always
     depends_on:
-      # Auth service now depends on migrations being completed
-      auth-migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=auth_service   # Service-specific DB user
-      - POSTGRES_PASSWORD=auth_password
-      - POSTGRES_DB=auth_db
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=
-      - REDIS_DB=0
-      - LOG_LEVEL=debug
+    entrypoint: ["sh", "-c", "sleep 10 && ./auth"]
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:50010/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      test: ["CMD-SHELL", "grpc_health_probe -addr=:50051 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
     networks:
-      - qubool-net
+      - quboolkallyanam-network
 
-  # user-migrate:
-  #   build:
-  #     context: ../../
-  #     dockerfile: deploy/docker/Dockerfile.migrate
-  #   environment:
-  #     - SERVICE_NAME=user
-  #     - DB_HOST=postgres
-  #     - DB_PORT=5432
-  #     - DB_USER=postgres
-  #     - DB_PASSWORD=password
-  #     - DB_NAME=user_db
-  #     - SERVICE_USER=user_service
-  #     - SERVICE_PASSWORD=user_password
-  #   volumes:
-  #     - ../../services/user/migrations/postgres:/migrations
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   networks:
-  #     - qubool-net
-  #   restart: "no"
+  admin:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.admin
+    environment:
+      - DB_HOST=postgres
+    ports:
+      - "50052:50052"
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "sleep 10 && ./admin"]
+    healthcheck:
+      test: ["CMD-SHELL", "grpc_health_probe -addr=:50052 || exit 1"]
+      interval: 10s     
+      timeout: 10s
+      retries: 10       
+      start_period: 40s
+    networks:
+      - quboolkallyanam-network
 
-  # User service
-  # user-service:
-  #   build:
-  #     context: ../../
-  #     dockerfile: deploy/docker/Dockerfile.user
-  #   ports:
-  #     - "50000:50000"  # HTTP
-  #     - "50001:50001"  # gRPC
-  #   depends_on:
-  #     user-migrate:
-  #       condition: service_completed_successfully
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   environment:
-  #     - POSTGRES_HOST=postgres
-  #     - POSTGRES_PORT=5432
-  #     - POSTGRES_USER=user_service
-  #     - POSTGRES_PASSWORD=user_password
-  #     - POSTGRES_DB=user_db
-  #     - REDIS_HOST=redis
-  #     - REDIS_PORT=6379
-  #     - REDIS_PASSWORD=
-  #     - REDIS_DB=0
-  #     - LOG_LEVEL=debug
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:50000/health"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 15s
-  #   networks:
-  #     - qubool-net
+  user:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.user
+    environment:
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+    ports:
+      - "50053:50053"
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "sleep 10 && ./user"]
+    healthcheck:
+      test: ["CMD-SHELL", "grpc_health_probe -addr=:50053 || exit 1"]
+      interval: 10s    
+      timeout: 10s
+      retries: 10       
+      start_period: 40s
+    networks:
+      - quboolkallyanam-network
 
-  # chat-service:
-  #   build:
-  #     context: ../../
-  #     dockerfile: deploy/docker/Dockerfile.chat
-  #   ports:
-  #     - "50020:50020"  # HTTP
-  #     - "50021:50021"  # gRPC 
-  #   depends_on:
-  #     mongodb:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:50053/health"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 15s
-  #   networks:
-  #     - qubool-net
-
-  # admin-migrate:
-  #   build:
-  #     context: ../../
-  #     dockerfile: deploy/docker/Dockerfile.migrate
-  #   environment:
-  #     - SERVICE_NAME=admin
-  #     - DB_HOST=postgres
-  #     - DB_PORT=5432
-  #     - DB_USER=postgres
-  #     - DB_PASSWORD=password
-  #     - DB_NAME=admin_db
-  #     - SERVICE_USER=admin_service
-  #     - SERVICE_PASSWORD=admin_password
-  #   volumes:
-  #     - ../../services/admin/migrations/postgres:/migrations
-
-  # admin-service:
-  #   build:
-  #     context: ../../
-  #     dockerfile: deploy/docker/Dockerfile.admin
-  #   ports:
-  #     - "50030:50030"  # HTTP
-  #     - "50031:50031"  # gRPC
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   environment:
-  #     - POSTGRES_HOST=postgres
-  #     - POSTGRES_PORT=5432
-  #     - POSTGRES_USER=postgres
-  #     - POSTGRES_PASSWORD=password
-  #     - POSTGRES_DB=admin
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:50054/health"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 15s
-  #   networks:
-  #     - qubool-net
-
-  gateway-service:
+  chat:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.chat
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017
+    ports:
+      - "50054:50054"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "grpc_health_probe -addr=:50054 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - quboolkallyanam-network
+  
+  gateway:
     build:
       context: ../../
       dockerfile: deploy/docker/Dockerfile.gateway
+    environment:
+      - AUTH_SERVICE_ADDR=auth:50051
+      - ADMIN_SERVICE_ADDR=admin:50052
+      - USER_SERVICE_ADDR=user:50053
+      - CHAT_SERVICE_ADDR=chat:50054
     ports:
       - "8080:8080"
     depends_on:
-      auth-service:
+      auth:
         condition: service_healthy
-      # user-service:
-      #   condition: service_healthy
-      # chat-service:
-      #   condition: service_healthy
-      # admin-service:
-      #   condition: service_healthy
-    environment:
-      # - SERVICE_USER_HTTP=user-service:50000
-      # - SERVICE_USER_GRPC=user-service:50001
-      - SERVICE_AUTH_HTTP=auth-service:50010
-      - SERVICE_AUTH_GRPC=auth-service:50011
-      - SERVER_ADDRESS=:8080
-      - GIN_MODE=debug
-      - AUTH_SERVICE_ADDRESS=auth-service:50011
-      # - SERVICE_CHAT_HTTP=chat-service:50020
-      # - SERVICE_CHAT_GRPC=chat-service:50021
-      # - SERVICE_ADMIN_HTTP=admin-service:50030
-      # - SERVICE_ADMIN_GRPC=admin-service:50031
-      - LOG_LEVEL=debug
+      admin:
+        condition: service_healthy
+      user:
+        condition: service_healthy
+      chat:
+        condition: service_healthy
+    restart: always
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/health/live"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 20s
     networks:
-      - qubool-net
-
-networks:
-  qubool-net:
-    driver: bridge
+      - quboolkallyanam-network
 
 volumes:
   postgres_data:
-  redis_data:
-  # mongodb_data:
+  mongodb_data:
+
+networks:
+  quboolkallyanam-network:
+    driver: bridge

@@ -68,3 +68,8 @@ func (c *Client) Exists(ctx context.Context, key string) (bool, error) {
 func (c *Client) TTL(ctx context.Context, key string) (time.Duration, error) {
 	return c.client.TTL(ctx, key).Result()
 }
+
+// GetClient returns the underlying redis client for use with health checkers
+func (c *Client) GetClient() *redis.Client {
+	return c.client
+}

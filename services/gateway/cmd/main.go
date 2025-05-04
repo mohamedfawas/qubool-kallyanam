@@ -1,36 +1,65 @@
 package main
 
 import (
-	"log"
+	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	authclient "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/server"
 )
 
 func main() {
-	// Initialize configuration
-	cfg, err := config.Load()
+	// Initialize logger
+	logger := logging.Default()
+
+	// Load configuration
+	configPath := "./configs/config.yaml"
+	if envPath := os.Getenv("CONFIG_PATH"); envPath != "" {
+		configPath = envPath
+	}
+
+	logger.Info("Loading configuration", "path", configPath)
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logger.Fatal("Failed to load config", "error", err)
 	}
 
-	// Initialize service clients
-	authClient, err := authclient.NewClient(cfg.Services.Auth.Address)
+	// Create server
+	logger.Info("Initializing server")
+	srv, err := server.NewServer(cfg, logger)
 	if err != nil {
-		log.Fatalf("Failed to create auth client: %v", err)
-	}
-	defer authClient.Close()
-
-	// Create and setup server
-	srv := server.NewServer(cfg, authClient)
-	srv.SetupRoutes()
-
-	// Start the server
-	if err := srv.Start(); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		logger.Fatal("Failed to create server", "error", err)
 	}
 
-	// Wait for shutdown signal
-	srv.WaitForShutdown()
+	// Start server in a goroutine
+	go func() {
+		logger.Info("Starting gateway service", "port", cfg.HTTP.Port)
+		if err := srv.Start(); err != nil {
+			if err != http.ErrServerClosed {
+				logger.Fatal("Failed to start server", "error", err)
+			}
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("Shutting down server...")
+
+	// Create a deadline to wait for
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Stop(ctx); err != nil {
+		logger.Error("Server forced to shutdown", "error", err)
+	}
+
+	logger.Info("Server stopped")
 }

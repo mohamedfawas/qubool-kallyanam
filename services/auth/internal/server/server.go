@@ -2,86 +2,186 @@ package server
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"net"
 
-	authv1 "github.com/mohamedfawas/qubool-kallyanam/api/proto/auth/v1"
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/database/redis"
+	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
+
+	authpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/auth/v1"
+	pgdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
+	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/adapters/postgres"
+
+	redisdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/redis"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/notifications/email"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/security/otp"
+	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/config"
+	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/services"
+	v1 "github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/handlers/grpc/v1"
+	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/handlers/health"
 )
 
-// AuthServer implements the auth gRPC service
-type AuthServer struct {
-	authv1.UnimplementedAuthServiceServer
-	db          *gorm.DB
-	redisClient *redis.Client
+// Server represents the gRPC server
+type Server struct {
+	config      *config.Config
+	logger      logging.Logger
+	grpcServer  *grpc.Server
+	pgClient    *pgdb.Client
+	redisClient *redisdb.Client
 }
 
-// NewAuthServer creates a new auth server
-func NewAuthServer(db *gorm.DB, redisClient *redis.Client) *AuthServer {
-	return &AuthServer{
-		db:          db,
+// NewServer creates a new gRPC server
+func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
+	// Initialize PostgreSQL client
+	pgClient, err := pgdb.NewClient(&pgdb.Config{
+		Host:     cfg.Database.Postgres.Host,
+		Port:     fmt.Sprintf("%d", cfg.Database.Postgres.Port),
+		User:     cfg.Database.Postgres.User,
+		Password: cfg.Database.Postgres.Password,
+		DBName:   cfg.Database.Postgres.DBName,
+		SSLMode:  cfg.Database.Postgres.SSLMode,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create postgres client: %w", err)
+	}
+
+	// Initialize Redis client
+	redisClient, err := redisdb.NewClient(&redisdb.Config{
+		Host:     cfg.Database.Redis.Host,
+		Port:     fmt.Sprintf("%d", cfg.Database.Redis.Port),
+		Password: cfg.Database.Redis.Password,
+		DB:       cfg.Database.Redis.DB,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create redis client: %w", err)
+	}
+
+	// Create gRPC server with options for better error handling
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			// Add logging interceptor
+			createLoggingInterceptor(logger),
+			// Add error interceptor
+			createErrorInterceptor(),
+		),
+	)
+
+	// Configure and register all services
+	if err := registerServices(grpcServer, pgClient.DB, redisClient.GetClient(), cfg, logger); err != nil {
+		return nil, fmt.Errorf("failed to register services: %w", err)
+	}
+
+	return &Server{
+		config:      cfg,
+		logger:      logger,
+		grpcServer:  grpcServer,
+		pgClient:    pgClient,
 		redisClient: redisClient,
+	}, nil
+}
+
+// registerServices sets up and registers all gRPC services
+func registerServices(
+	grpcServer *grpc.Server,
+	db *gorm.DB,
+	redisClient *redis.Client,
+	cfg *config.Config,
+	logger logging.Logger,
+) error {
+	// Register health service
+	health.RegisterHealthService(grpcServer, db, redisClient)
+
+	// Create repository
+	registrationRepo := postgres.NewRegistrationRepository(db)
+
+	// Set up OTP components
+	otpConfig := otp.DefaultConfig()
+	otpGenerator := otp.NewGenerator(otpConfig)
+	otpStore := otp.NewStore(redisClient, otpConfig)
+
+	// Set up email client
+	emailClient, err := email.NewClient(email.Config{
+		SMTPHost:     cfg.Email.SMTPHost,
+		SMTPPort:     cfg.Email.SMTPPort,
+		SMTPUsername: cfg.Email.Username,
+		SMTPPassword: cfg.Email.Password,
+		FromEmail:    cfg.Email.FromEmail,
+		FromName:     cfg.Email.FromName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create email client: %w", err)
+	}
+
+	// Create service
+	registrationService := services.NewRegistrationService(
+		registrationRepo,
+		otpGenerator,
+		otpStore,
+		emailClient,
+	)
+
+	// Create and register auth handler
+	authHandler := v1.NewAuthHandler(registrationService, logger)
+	authpb.RegisterAuthServiceServer(grpcServer, authHandler)
+
+	return nil
+}
+
+// Create a logging interceptor for gRPC
+func createLoggingInterceptor(logger logging.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		logger.Info("gRPC request", "method", info.FullMethod)
+		resp, err := handler(ctx, req)
+		if err != nil {
+			logger.Error("gRPC error", "method", info.FullMethod, "error", err)
+		}
+		return resp, err
 	}
 }
 
-// HealthCheck implements the HealthCheck RPC method
-func (s *AuthServer) HealthCheck(ctx context.Context, req *authv1.HealthCheckRequest) (*authv1.HealthCheckResponse, error) {
-	log.Println("Health check requested")
+// Create an error interceptor for gRPC
+func createErrorInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		resp, err := handler(ctx, req)
+		if err != nil {
+			// If the error is already a gRPC status error, return it as is
+			if _, ok := status.FromError(err); ok {
+				return resp, err
+			}
 
-	status := "UP"
+			// Otherwise, convert it to an internal server error
+			return resp, status.Error(codes.Internal, "Internal server error")
+		}
+		return resp, nil
+	}
+}
 
-	// Check database connection
-	sqlDB, err := s.db.DB()
-	if err != nil || sqlDB.PingContext(ctx) != nil {
-		log.Printf("Postgres health check failed: %v", err)
-		status = "DOWN"
+// Start starts the gRPC server
+func (s *Server) Start() error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.config.GRPC.Port))
+	if err != nil {
+		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	// Check Redis connection
-	_, err = s.redisClient.Get(ctx, "health_check_key")
-	if err != nil && err.Error() != "redis: nil" {
-		log.Printf("Redis health check failed: %v", err)
-		status = "DOWN"
+	s.logger.Info("Starting gRPC server", "port", s.config.GRPC.Port)
+	return s.grpcServer.Serve(lis)
+}
+
+// Stop stops the gRPC server
+func (s *Server) Stop() {
+	s.logger.Info("Stopping gRPC server")
+	s.grpcServer.GracefulStop()
+
+	// Close database connections
+	if s.pgClient != nil {
+		s.pgClient.Close()
 	}
 
-	return &authv1.HealthCheckResponse{
-		Status: status,
-	}, nil
-}
-
-// RegisterUser implements the RegisterUser RPC method
-func (s *AuthServer) RegisterUser(ctx context.Context, req *authv1.RegisterUserRequest) (*authv1.RegisterUserResponse, error) {
-	log.Printf("Received registration request for email: %s, phone: %s", req.Email, req.Phone)
-
-	// For MVP, just return success
-	return &authv1.RegisterUserResponse{
-		Success: true,
-		Message: "Registration initiated successfully",
-	}, nil
-}
-
-// Login implements the Login RPC method
-func (s *AuthServer) Login(ctx context.Context, req *authv1.LoginRequest) (*authv1.LoginResponse, error) {
-	log.Printf("Login attempt for identifier: %s", req.Identifier)
-
-	// For MVP, just return success
-	return &authv1.LoginResponse{
-		Success:      true,
-		Message:      "Login successful",
-		AccessToken:  "sample-access-token",
-		RefreshToken: "sample-refresh-token",
-	}, nil
-}
-
-// VerifyRegistration implements the VerifyRegistration RPC method
-func (s *AuthServer) VerifyRegistration(ctx context.Context, req *authv1.VerifyRegistrationRequest) (*authv1.VerifyRegistrationResponse, error) {
-	log.Printf("Verification attempt for email: %s, OTP: %s", req.Email, req.Otp)
-
-	// For MVP, just return success
-	return &authv1.VerifyRegistrationResponse{
-		Success:      true,
-		Message:      "Verification successful",
-		AccessToken:  "sample-access-token",
-		RefreshToken: "sample-refresh-token",
-	}, nil
+	if s.redisClient != nil {
+		s.redisClient.Close()
+	}
 }

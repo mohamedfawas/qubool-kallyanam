@@ -1,47 +1,24 @@
-server:
-  host: "0.0.0.0"
-  port: 50010
-  read_timeout: 5s
-  write_timeout: 10s
-  idle_timeout: 120s
-
 grpc:
-  host: "0.0.0.0"
-  port: 50011
+  port: 50051
 
-postgres:
-  host: "postgres"
-  port: 5432
-  username: "auth_service" # Service-specific user
-  password: "auth_password" # Service-specific password
-  database: "auth_db" # Service-specific database
-  max_open_conns: 10
-  max_idle_conns: 5
-  conn_timeout: 5s
-  query_timeout: 30s
-  ssl_mode: "disable"
+database:
+  postgres:
+    host: localhost
+    port: 5432
+    user: postgres
+    password: postgres
+    dbname: qubool_kallyanam_auth
+    sslmode: disable
+  redis:
+    host: localhost
+    port: 6379
+    password: ""
+    db: 0
 
-redis:
-  host: "redis"
-  port: 6379
-  password: ""
-  db: 0
-  pool_size: 10
-  min_idle_conns: 2
-  read_timeout: 1s
-  write_timeout: 1s
-  max_retries: 2
-
-smtp:
-  host: "smtp.gmail.com"
-  port: 587
-  username: "your-email@gmail.com"
-  password: "your-app-password"
-  from_name: "Qubool Kallyanam"
-  from_email: "no-reply@quboolkallyanam.com"
-  timeout: 10s
-
-logging:
-  level: "debug"
-  format: "console"
-  output: "stdout"
+email:
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  username: your-email@gmail.com
+  password: your-app-password
+  from_email: noreply@quboolkallyanam.com
+  from_name: Qubool Kallyanam

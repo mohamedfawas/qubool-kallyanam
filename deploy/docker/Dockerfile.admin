@@ -1,33 +1,45 @@
-# Build stage
 FROM golang:1.23.4-alpine AS builder
 
 WORKDIR /app
 
-# Copy only what's needed for this service
-COPY pkg/ /app/pkg/
-COPY services/admin/ /app/services/admin/
+ENV GOPROXY=https://goproxy.io,direct
 
-# Add a replace directive to find the pkg module locally
-RUN echo 'replace github.com/mohamedfawas/qubool-kallyanam/pkg => /app/pkg' >> /app/services/admin/go.mod
+# Copy only necessary go.mod files
+COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY services/admin/go.mod ./services/admin/
 
-# Build without using workspace
-RUN cd /app/services/admin && \
-    go mod tidy && \
-    CGO_ENABLED=0 GOOS=linux go build -o /app/admin-service ./cmd/main.go
+# Download dependencies
+WORKDIR /app/services/admin
+RUN go mod download -x
 
-# Runtime stage
-FROM alpine:latest
+# Copy source code
 WORKDIR /app
-RUN apk --no-cache add ca-certificates tzdata wget && update-ca-certificates
-COPY --from=builder /app/admin-service .
-COPY --from=builder /app/services/admin/configs/config.yaml /app/configs/config.yaml
-RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
-USER appuser
-EXPOSE 50054
-# Environment variables for database connections
-ENV POSTGRES_HOST=postgres \
-    POSTGRES_PORT=5432 \
-    POSTGRES_USER=postgres \
-    POSTGRES_PASSWORD=password \
-    POSTGRES_DB=admin
-CMD ["./admin-service", "--config=configs/config.yaml"]
+COPY pkg/ ./pkg/
+COPY services/admin/ ./services/admin/
+
+# Build the application
+WORKDIR /app/services/admin
+RUN CGO_ENABLED=0 go build -o /admin ./cmd/main.go
+
+# Install grpc_health_probe
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.19 && \
+    wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
+    chmod +x /bin/grpc_health_probe
+
+# Use a small image for the final stage
+FROM alpine:latest
+
+WORKDIR /app
+
+# Copy binary and health probe from builder stage
+COPY --from=builder /admin .
+COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe
+
+# Copy config file
+COPY services/admin/configs/config.yaml ./configs/
+
+# Expose port
+EXPOSE 50052
+
+# Run the application
+CMD ["./admin"]

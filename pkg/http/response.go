@@ -5,6 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Response represents a standard API response
@@ -58,4 +60,35 @@ func Error(c *gin.Context, err error) {
 	}
 
 	c.JSON(statusCode, response)
+}
+
+// StatusAccepted represents 202 Accepted status
+const StatusAccepted = http.StatusAccepted
+
+// NewBadRequest creates a bad request error
+func NewBadRequest(message string, err error) *errors.AppError {
+	return errors.NewBadRequest(message, err)
+}
+
+// FromGRPCError converts gRPC error to AppError
+func FromGRPCError(err error) *errors.AppError {
+	st, ok := status.FromError(err)
+	if !ok {
+		return errors.NewInternalServerError("Internal server error", err)
+	}
+
+	switch st.Code() {
+	case codes.InvalidArgument:
+		return errors.NewBadRequest(st.Message(), err)
+	case codes.AlreadyExists:
+		return errors.NewBadRequest(st.Message(), err)
+	case codes.NotFound:
+		return errors.NewNotFound(st.Message(), err)
+	case codes.Unauthenticated:
+		return errors.NewUnauthorized(st.Message(), err)
+	case codes.PermissionDenied:
+		return errors.NewForbidden(st.Message(), err)
+	default:
+		return errors.NewInternalServerError("Internal server error", err)
+	}
 }

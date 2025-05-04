@@ -2,44 +2,44 @@ FROM golang:1.23.4-alpine AS builder
 
 WORKDIR /app
 
-# Install necessary build tools
-RUN apk add --no-cache git
+ENV GOPROXY=https://goproxy.io,direct
 
-# Copy the entire services directory
-COPY services/ ./services/
-COPY pkg/ ./pkg/
+# Copy only necessary go.mod files
+COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY services/auth/go.mod ./services/auth/
 
 # Download dependencies
 WORKDIR /app/services/auth
-RUN go mod download
+RUN go mod download -x
+
+# Copy source code
+WORKDIR /app
+COPY pkg/ ./pkg/
+COPY services/auth/ ./services/auth/
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/auth-service ./cmd/main.go
+WORKDIR /app/services/auth
+RUN CGO_ENABLED=0 go build -o /auth ./cmd/main.go
 
-# Create final lightweight image
+# Install grpc_health_probe
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.19 && \
+    wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
+    chmod +x /bin/grpc_health_probe
+
+# Use a small image for the final stage
 FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 
-# Copy binary from builder stage
-COPY --from=builder /app/auth-service .
+# Copy binary and health probe from builder stage
+COPY --from=builder /auth .
+COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe
 
-# Environment variables
-ENV SERVER_HOST=0.0.0.0 \
-    SERVER_PORT=50011 \
-    POSTGRES_HOST=postgres \
-    POSTGRES_PORT=5432 \
-    POSTGRES_USER=auth_service \
-    POSTGRES_PASSWORD=auth_password \
-    POSTGRES_DB=auth_db \
-    POSTGRES_SSLMODE=disable \
-    REDIS_HOST=redis \
-    REDIS_PORT=6379 \
-    REDIS_PASSWORD= \
-    REDIS_DB=0
+# Copy config file
+COPY services/auth/configs/config.yaml ./configs/
 
-EXPOSE 50010 50011
+# Expose port
+EXPOSE 50051
 
-CMD ["./auth-service"]
+# Run the application
+CMD ["./auth"]
