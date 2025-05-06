@@ -4,9 +4,10 @@ WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
-# Copy only necessary go.mod files
+# Copy necessary go.mod files
+COPY api/go.mod ./api/
 COPY pkg/go.mod pkg/go.sum ./pkg/
-COPY services/auth/go.mod ./services/auth/
+COPY services/auth/go.mod services/auth/go.sum ./services/auth/
 
 # Download dependencies
 WORKDIR /app/services/auth
@@ -14,6 +15,7 @@ RUN go mod download -x
 
 # Copy source code
 WORKDIR /app
+COPY api/ ./api/
 COPY pkg/ ./pkg/
 COPY services/auth/ ./services/auth/
 
@@ -26,17 +28,20 @@ RUN GRPC_HEALTH_PROBE_VERSION=v0.4.19 && \
     wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
     chmod +x /bin/grpc_health_probe
 
-# Use a small image for the final stage
+# Final stage
 FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 
-# Copy binary and health probe from builder stage
+# Copy binary and health probe
 COPY --from=builder /auth .
 COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe
 
-# Copy config file
-COPY services/auth/configs/config.yaml ./configs/
+# Create config directory and copy config
+RUN mkdir -p /app/configs
+COPY services/auth/configs/config.yaml /app/configs/
 
 # Expose port
 EXPOSE 50051

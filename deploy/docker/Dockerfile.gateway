@@ -4,9 +4,10 @@ WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
-# Copy only necessary go.mod files
+# Copy necessary go.mod files
+COPY api/go.mod ./api/
 COPY pkg/go.mod pkg/go.sum ./pkg/
-COPY services/gateway/go.mod ./services/gateway/
+COPY services/gateway/go.mod services/gateway/go.sum ./services/gateway/
 
 # Download dependencies
 WORKDIR /app/services/gateway
@@ -14,6 +15,7 @@ RUN go mod download -x
 
 # Copy source code
 WORKDIR /app
+COPY api/ ./api/
 COPY pkg/ ./pkg/
 COPY services/gateway/ ./services/gateway/
 
@@ -21,14 +23,14 @@ COPY services/gateway/ ./services/gateway/
 WORKDIR /app/services/gateway
 RUN CGO_ENABLED=0 go build -o /gateway ./cmd/main.go
 
-# Use a small image for the final stage
+# Final stage
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates wget
+RUN apk --no-cache add ca-certificates tzdata wget
 
 WORKDIR /app
 
-# Copy binary from builder stage
+# Copy binary
 COPY --from=builder /gateway .
 
 # Copy config file

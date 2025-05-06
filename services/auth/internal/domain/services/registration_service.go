@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/notifications/email"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/security/encryption"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/security/otp"
@@ -21,6 +22,8 @@ var (
 	ErrPhoneAlreadyExists  = errors.New("phone number already registered")
 	ErrRegistrationFailed  = errors.New("registration failed")
 	ErrOTPGenerationFailed = errors.New("failed to generate OTP")
+	ErrInvalidOTP          = errors.New("invalid or expired OTP")
+	ErrVerificationFailed  = errors.New("verification failed")
 )
 
 // RegistrationService handles user registration logic
@@ -29,6 +32,7 @@ type RegistrationService struct {
 	otpGenerator     *otp.Generator
 	otpStore         *otp.Store
 	emailClient      *email.Client
+	logger           logging.Logger
 }
 
 // NewRegistrationService creates a new registration service
@@ -37,12 +41,14 @@ func NewRegistrationService(
 	otpGenerator *otp.Generator,
 	otpStore *otp.Store,
 	emailClient *email.Client,
+	logger logging.Logger,
 ) *RegistrationService {
 	return &RegistrationService{
 		registrationRepo: repo,
 		otpGenerator:     otpGenerator,
 		otpStore:         otpStore,
 		emailClient:      emailClient,
+		logger:           logger,
 	}
 }
 
@@ -142,6 +148,69 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 	// Send OTP via email
 	if err := s.emailClient.SendOTPEmail(reg.Email, otp); err != nil {
 		return fmt.Errorf("failed to send OTP email: %w", err)
+	}
+
+	return nil
+}
+
+// VerifyRegistration verifies a user's email with OTP
+func (s *RegistrationService) VerifyRegistration(ctx context.Context, email, otp string) error {
+	// Validate email format
+	if !validation.ValidateEmail(email) {
+		s.logger.Debug("Invalid email format", "email", email)
+		return fmt.Errorf("%w: invalid email format", ErrInvalidInput)
+	}
+
+	// Get pending registration
+	pendingReg, err := s.registrationRepo.GetPendingRegistration(ctx, "email", email)
+	if err != nil {
+		s.logger.Error("Failed to get pending registration", "email", email, "error", err)
+		return fmt.Errorf("failed to get pending registration: %w", err)
+	}
+
+	if pendingReg == nil {
+		s.logger.Debug("No pending registration found", "email", email)
+		return fmt.Errorf("no pending registration found for email: %s", email)
+	}
+
+	// Verify OTP
+	valid, err := s.otpStore.ValidateOTP(ctx, email, otp)
+	if err != nil {
+		s.logger.Error("OTP validation error", "email", email, "error", err)
+		return fmt.Errorf("OTP verification error: %w", err)
+	}
+
+	if !valid {
+		s.logger.Debug("Invalid OTP provided", "email", email)
+		return ErrInvalidOTP
+	}
+
+	s.logger.Info("OTP verified successfully", "email", email)
+
+	// Create new user from pending registration
+	user := &models.User{
+		Email:        pendingReg.Email,
+		Phone:        pendingReg.Phone,
+		PasswordHash: pendingReg.PasswordHash,
+		Verified:     true,
+		CreatedAt:    indianstandardtime.Now(),
+		UpdatedAt:    indianstandardtime.Now(),
+	}
+
+	// Create user in database
+	if err := s.registrationRepo.CreateUser(ctx, user); err != nil {
+		s.logger.Error("Failed to create user", "email", email, "error", err)
+		return fmt.Errorf("%w: %v", ErrVerificationFailed, err)
+	}
+
+	s.logger.Info("User created successfully", "email", email, "id", user.ID)
+
+	// Delete pending registration
+	if err := s.registrationRepo.DeletePendingRegistration(ctx, pendingReg.ID); err != nil {
+		s.logger.Error("Failed to delete pending registration", "id", pendingReg.ID, "error", err)
+		// We continue despite this error since user is already created
+	} else {
+		s.logger.Debug("Pending registration deleted", "id", pendingReg.ID)
 	}
 
 	return nil

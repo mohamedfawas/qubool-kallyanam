@@ -75,10 +75,16 @@ func (c *Client) SendEmail(data EmailData) error {
 	message += "\r\n" + data.Body
 
 	// Connect to SMTP server
-	auth := smtp.PlainAuth("", c.config.SMTPUsername, c.config.SMTPPassword, c.config.SMTPHost)
 	addr := fmt.Sprintf("%s:%d", c.config.SMTPHost, c.config.SMTPPort)
 
-	// Send email
+	// Skip authentication for MailHog (for development environments)
+	if c.config.SMTPHost == "mailhog" {
+		// Send without authentication
+		return smtp.SendMail(addr, nil, c.config.FromEmail, []string{data.To}, []byte(message))
+	}
+
+	// Use authentication for production environments
+	auth := smtp.PlainAuth("", c.config.SMTPUsername, c.config.SMTPPassword, c.config.SMTPHost)
 	err := smtp.SendMail(addr, auth, c.config.FromEmail, []string{data.To}, []byte(message))
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSendFailed, err)

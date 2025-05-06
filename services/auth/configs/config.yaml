@@ -16,9 +16,21 @@ database:
     db: 0
 
 email:
-  smtp_host: smtp.gmail.com
-  smtp_port: 587
-  username: your-email@gmail.com
-  password: your-app-password
-  from_email: noreply@quboolkallyanam.com
+  smtp_host: mailhog
+  smtp_port: 1025
+  username: test@example.com
+  password: password
+  from: noreply@quboolkallyanam.com
   from_name: Qubool Kallyanam
+otp:
+  length: 6
+  expiry_minutes: 10
+auth:
+  jwt:
+    secret_key: "your-256-bit-secret-replace-in-production" # Use env var in production
+    access_token_minutes: 15
+    refresh_token_days: 7
+    issuer: "qubool-kallyanam"
+admin:
+  default_email: "admin@quboolkallyanam.com"
+  default_password: "Admin@123456" # This should be changed in production

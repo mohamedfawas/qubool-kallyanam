@@ -8,6 +8,20 @@ service AuthService {
   // Register initiates user registration by sending OTP
   rpc Register(RegisterRequest) returns (RegisterResponse);
   
+  // Verify confirms user registration with OTP
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+
+  // Login authenticates a user and returns JWT tokens
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // Logout invalidates user tokens
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // RefreshToken generates a new access token using a refresh token
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  
+  // AdminLogin authenticates an admin user and returns JWT tokens
+  rpc AdminLogin(LoginRequest) returns (LoginResponse);
   // Other auth methods will be added in future phases
 }
 
@@ -21,4 +35,52 @@ message RegisterResponse {
   bool success = 1;
   string message = 2;
   string error = 3;
+}
+
+message VerifyRequest {
+  string email = 1;
+  string otp = 2;
+}
+
+message VerifyResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  bool success = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  int32 expires_in = 4;
+  string message = 5;
+  string error = 6;
+}
+
+message LogoutRequest {
+  string access_token = 1;
+}
+
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+message RefreshTokenRequest {
+  // Empty for now as token will be in metadata
+}
+
+message RefreshTokenResponse {
+  bool success = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  int32 expires_in = 4;
+  string message = 5;
+  string error = 6;
 }

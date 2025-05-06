@@ -6,6 +6,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/google/uuid"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/utils/indianstandardtime"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/repositories"
 )
@@ -53,4 +55,38 @@ func (r *RegistrationRepo) IsRegistered(ctx context.Context, field string, value
 	var count int64
 	err := r.db.WithContext(ctx).Table("users").Where(field+" = ?", value).Count(&count).Error
 	return count > 0, err
+}
+
+// GetUser retrieves a user by the specified field (email or phone)
+func (r *RegistrationRepo) GetUser(ctx context.Context, field string, value string) (*models.User, error) {
+	var user models.User
+	result := r.db.WithContext(ctx).Where(field+" = ?", value).First(&user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
+// CreateUser creates a new user in the database
+func (r *RegistrationRepo) CreateUser(ctx context.Context, user *models.User) error {
+	return r.db.WithContext(ctx).Create(user).Error
+}
+
+// UpdateLastLogin updates the last login timestamp for a user
+func (r *RegistrationRepo) UpdateLastLogin(ctx context.Context, userID string) error {
+	id, err := uuid.Parse(userID)
+	if err != nil {
+		return err
+	}
+
+	now := indianstandardtime.Now()
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"last_login_at": now,
+			"updated_at":    now,
+		}).Error
 }

@@ -26,6 +26,12 @@ func SetupRouter(
 	auth := v1.Group("/auth")
 	{
 		auth.POST("/register", authHandler.Register)
+		auth.POST("/verify", authHandler.Verify)
+		auth.POST("/login", authHandler.Login)
+		auth.POST("/logout", authHandler.Logout)
+		auth.POST("/refresh", authHandler.RefreshToken)
+		auth.POST("/admin/login", authHandler.AdminLogin)
+		auth.POST("/admin/logout", authHandler.AdminLogout)
 	}
 
 	// Health check

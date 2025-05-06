@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/spf13/viper"
 )
@@ -12,11 +13,31 @@ type Config struct {
 	GRPC     GRPCConfig     `mapstructure:"grpc"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Email    EmailConfig    `mapstructure:"email"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+	Admin    AdminConfig    `mapstructure:"admin"`
+}
+
+// AuthConfig contains authentication-related configuration
+type AuthConfig struct {
+	JWT JWTConfig `mapstructure:"jwt"`
+}
+
+// JWTConfig contains JWT configuration
+type JWTConfig struct {
+	SecretKey          string `mapstructure:"secret_key"`
+	AccessTokenMinutes int    `mapstructure:"access_token_minutes"`
+	RefreshTokenDays   int    `mapstructure:"refresh_token_days"`
+	Issuer             string `mapstructure:"issuer"`
 }
 
 // GRPCConfig represents gRPC server configuration
 type GRPCConfig struct {
 	Port int `mapstructure:"port"`
+}
+
+type AdminConfig struct {
+	DefaultEmail    string `mapstructure:"default_email"`
+	DefaultPassword string `mapstructure:"default_password"`
 }
 
 // DatabaseConfig represents database configuration
@@ -49,7 +70,7 @@ type EmailConfig struct {
 	SMTPPort  int    `mapstructure:"smtp_port"`
 	Username  string `mapstructure:"username"`
 	Password  string `mapstructure:"password"`
-	FromEmail string `mapstructure:"from_email"`
+	FromEmail string `mapstructure:"from"`
 	FromName  string `mapstructure:"from_name"`
 }
 
@@ -78,8 +99,19 @@ func LoadConfig(path string) (*Config, error) {
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
 		config.Email.SMTPHost = smtpHost
 	}
+	if smtpPort := os.Getenv("SMTP_PORT"); smtpPort != "" {
+		port, _ := strconv.Atoi(smtpPort)
+		config.Email.SMTPPort = port
+	}
 	if emailPass := os.Getenv("EMAIL_PASSWORD"); emailPass != "" {
 		config.Email.Password = emailPass
+	}
+
+	if adminEmail := os.Getenv("ADMIN_DEFAULT_EMAIL"); adminEmail != "" {
+		config.Admin.DefaultEmail = adminEmail
+	}
+	if adminPassword := os.Getenv("ADMIN_DEFAULT_PASSWORD"); adminPassword != "" {
+		config.Admin.DefaultPassword = adminPassword
 	}
 
 	return &config, nil

@@ -19,4 +19,13 @@ type RegistrationRepository interface {
 
 	// IsRegistered checks if a field (email or phone) is already registered in users table
 	IsRegistered(ctx context.Context, field string, value string) (bool, error)
+
+	// GetUser retrieves a user by the specified field (email or phone)
+	GetUser(ctx context.Context, field string, value string) (*models.User, error)
+
+	// CreateUser creates a new user in the database
+	CreateUser(ctx context.Context, user *models.User) error
+
+	// UpdateLastLogin updates the last login timestamp for a user
+	UpdateLastLogin(ctx context.Context, userID string) error
 }

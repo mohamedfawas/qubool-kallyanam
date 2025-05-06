@@ -4,11 +4,13 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL UNIQUE,
     phone VARCHAR(20) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
+    verified BOOLEAN NOT NULL DEFAULT FALSE,
+    premium_until TIMESTAMP,
+    last_login_at TIMESTAMP,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL ,
     updated_at TIMESTAMP NOT NULL ,
-    deleted_at TIMESTAMP,
-    last_login TIMESTAMP,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    deleted_at TIMESTAMP
 );
 
 

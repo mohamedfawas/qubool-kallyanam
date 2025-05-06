@@ -15,10 +15,14 @@ import (
 	pgdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/adapters/postgres"
 
+	"time"
+
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	redisdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/redis"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/notifications/email"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/security/otp"
+	redisAdapter "github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/adapters/redis"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/services"
 	v1 "github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/handlers/grpc/v1"
@@ -97,6 +101,16 @@ func registerServices(
 
 	// Create repository
 	registrationRepo := postgres.NewRegistrationRepository(db)
+	tokenRepo := redisAdapter.NewTokenRepository(redisClient)
+	adminRepo := postgres.NewAdminRepository(db)
+
+	// Create JWT Manager
+	jwtManager := jwt.NewManager(jwt.Config{
+		SecretKey:       cfg.Auth.JWT.SecretKey,
+		AccessTokenTTL:  time.Duration(cfg.Auth.JWT.AccessTokenMinutes) * time.Minute,
+		RefreshTokenTTL: time.Duration(cfg.Auth.JWT.RefreshTokenDays) * 24 * time.Hour,
+		Issuer:          cfg.Auth.JWT.Issuer,
+	})
 
 	// Set up OTP components
 	otpConfig := otp.DefaultConfig()
@@ -122,10 +136,37 @@ func registerServices(
 		otpGenerator,
 		otpStore,
 		emailClient,
+		logger,
+	)
+
+	// Create admin service
+	adminService := services.NewAdminService(adminRepo, logger)
+
+	// Initialize default admin
+	if err := adminService.InitializeDefaultAdmin(
+		context.Background(),
+		cfg.Admin.DefaultEmail,
+		cfg.Admin.DefaultPassword,
+	); err != nil {
+		logger.Error("Failed to initialize default admin", "error", err)
+		// Continue execution, don't fail startup
+	}
+
+	// Create auth service with admin repository
+	authService := services.NewAuthService(
+		registrationRepo,
+		tokenRepo,
+		adminRepo, // Add this parameter
+		jwtManager,
+		logger,
+		time.Duration(cfg.Auth.JWT.AccessTokenMinutes)*time.Minute,
+		time.Duration(cfg.Auth.JWT.RefreshTokenDays)*24*time.Hour,
 	)
 
 	// Create and register auth handler
-	authHandler := v1.NewAuthHandler(registrationService, logger)
+	authHandler := v1.NewAuthHandler(registrationService,
+		authService,
+		logger)
 	authpb.RegisterAuthServiceServer(grpcServer, authHandler)
 
 	return nil

@@ -73,6 +73,7 @@ type Claims struct {
 	Services     ServiceAccess `json:"services"`
 	Verified     bool          `json:"verified"`
 	PremiumUntil *int64        `json:"premium_until,omitempty"`
+	UserIDString string        `json:"user_id_string,omitempty"` // Add this field
 	jwt.RegisteredClaims
 }
 
@@ -89,7 +90,7 @@ func NewManager(config Config) *Manager {
 }
 
 // GenerateAccessToken generates a new JWT access token
-func (m *Manager) GenerateAccessToken(userID uint, role Role, verified bool, premiumUntil *int64) (string, error) {
+func (m *Manager) GenerateAccessToken(userID uint, role Role, verified bool, premiumUntil *int64, userIDString string) (string, error) {
 	now := time.Now()
 	services := GetServiceAccessByRole(role)
 
@@ -99,6 +100,7 @@ func (m *Manager) GenerateAccessToken(userID uint, role Role, verified bool, pre
 		Services:     services,
 		Verified:     verified,
 		PremiumUntil: premiumUntil,
+		UserIDString: userIDString, // Set the UUID string in claims
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.AccessTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -112,10 +114,11 @@ func (m *Manager) GenerateAccessToken(userID uint, role Role, verified bool, pre
 }
 
 // GenerateRefreshToken generates a new JWT refresh token
-func (m *Manager) GenerateRefreshToken(userID uint) (string, error) {
+func (m *Manager) GenerateRefreshToken(userID uint, userIDString string) (string, error) {
 	now := time.Now()
 	claims := &Claims{
-		UserID: userID,
+		UserID:       userID,
+		UserIDString: userIDString, // Set the UUID string in claims
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.RefreshTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),

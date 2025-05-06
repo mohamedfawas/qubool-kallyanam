@@ -9,24 +9,23 @@ import (
 
 // User represents a user in the system
 type User struct {
-	ID           uint           `gorm:"primaryKey"`
-	UUID         string         `gorm:"type:uuid;default:gen_random_uuid();uniqueIndex"`
-	Email        string         `gorm:"uniqueIndex"`
-	Phone        string         `gorm:"uniqueIndex"`
-	PasswordHash string         `gorm:"not null"`
-	Verified     bool           `gorm:"default:false"`
-	Role         string         `gorm:"default:'USER'"`
+	ID           uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	Email        string         `gorm:"size:255;not null;uniqueIndex:idx_users_email"`
+	Phone        string         `gorm:"size:20;not null;uniqueIndex:idx_users_phone"`
+	PasswordHash string         `gorm:"size:255;not null"`
+	Verified     bool           `gorm:"not null;default:false"`
 	PremiumUntil *time.Time     `gorm:"default:null"`
-	LastLoginAt  *time.Time     `gorm:"default:null"`
+	LastLoginAt  *time.Time     `gorm:"column:last_login_at;default:null"`
+	IsActive     bool           `gorm:"not null;default:true"`
 	CreatedAt    time.Time      `gorm:"not null"`
 	UpdatedAt    time.Time      `gorm:"not null"`
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
+	DeletedAt    gorm.DeletedAt `gorm:"index;column:deleted_at"`
 }
 
 // BeforeCreate generates a UUID if not present
 func (u *User) BeforeCreate(tx *gorm.DB) error {
-	if u.UUID == "" {
-		u.UUID = uuid.New().String()
+	if u.ID == uuid.Nil {
+		u.ID = uuid.New()
 	}
 	return nil
 }
