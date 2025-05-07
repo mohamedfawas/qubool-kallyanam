@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/messaging/rabbitmq"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/security/encryption"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/repositories"
 )
@@ -41,6 +42,7 @@ type AuthService struct {
 	logger           logging.Logger
 	accessTokenTTL   time.Duration
 	refreshTokenTTL  time.Duration
+	messageBroker    *rabbitmq.Client
 }
 
 // NewAuthService creates a new authentication service
@@ -52,6 +54,7 @@ func NewAuthService(
 	logger logging.Logger,
 	accessTokenTTL time.Duration,
 	refreshTokenTTL time.Duration,
+	messageBroker *rabbitmq.Client,
 ) *AuthService {
 	return &AuthService{
 		registrationRepo: registrationRepo,
@@ -61,6 +64,7 @@ func NewAuthService(
 		logger:           logger,
 		accessTokenTTL:   accessTokenTTL,
 		refreshTokenTTL:  refreshTokenTTL,
+		messageBroker:    messageBroker,
 	}
 }
 
@@ -109,6 +113,23 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*Token
 	if err != nil {
 		s.logger.Error("Failed to update last login time", "userId", user.ID, "error", err)
 		// Continue despite this error since authentication succeeded
+	}
+
+	// Publish user login event
+	if s.messageBroker != nil {
+		loginEvent := map[string]interface{}{
+			"user_id":    user.ID.String(),
+			"phone":      user.Phone,
+			"last_login": time.Now(),
+			"event_type": "login",
+		}
+
+		if err := s.messageBroker.Publish("user.login", loginEvent); err != nil {
+			s.logger.Error("Failed to publish login event", "userId", user.ID, "error", err)
+			// Continue despite this error since authentication succeeded
+		} else {
+			s.logger.Info("Login event published", "userId", user.ID)
+		}
 	}
 
 	s.logger.Info("User logged in successfully", "email", email, "userId", user.ID)

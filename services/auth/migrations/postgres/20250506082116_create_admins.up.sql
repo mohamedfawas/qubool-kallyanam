@@ -7,5 +7,3 @@ CREATE TABLE IF NOT EXISTS admins (
     updated_at TIMESTAMP NOT NULL,
     deleted_at TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_admins_email ON admins(email);

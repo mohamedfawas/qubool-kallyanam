@@ -15,6 +15,12 @@ type Config struct {
 	Email    EmailConfig    `mapstructure:"email"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Admin    AdminConfig    `mapstructure:"admin"`
+	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
+}
+
+type RabbitMQConfig struct {
+	DSN          string `mapstructure:"dsn"`
+	ExchangeName string `mapstructure:"exchange_name"`
 }
 
 // AuthConfig contains authentication-related configuration

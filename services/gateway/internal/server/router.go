@@ -34,6 +34,14 @@ func SetupRouter(
 		auth.POST("/admin/logout", authHandler.AdminLogout)
 	}
 
+	// // User routes - protected by Auth middleware
+	// user := v1.Group("/user")
+	// user.Use(middleware.AuthRequired()) // Add authentication middleware
+	// {
+	// 	user.POST("/profile", userHandler.CreateProfile)
+	// 	// Add more user routes here as needed
+	// }
+
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})

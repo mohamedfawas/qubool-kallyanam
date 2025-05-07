@@ -14,3 +14,7 @@ database:
     port: 6379
     password: ""
     db: 0
+
+rabbitmq:
+  dsn: "amqp://guest:guest@localhost:5672/"
+  exchange_name: "qubool_events"

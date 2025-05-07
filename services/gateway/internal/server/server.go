@@ -39,6 +39,12 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create auth client: %w", err)
 	}
 
+	// // Create user client
+	// userClient, err := user.NewClient(cfg.Services.User.Address)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to create user client: %w", err)
+	// }
+
 	// Create HTTP server
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTP.Port),
@@ -54,6 +60,7 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		httpServer: httpServer,
 		router:     router,
 		authClient: authClient,
+		// userClient: userClient,
 	}
 
 	// Initialize routes
@@ -66,9 +73,13 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 func (s *Server) setupRoutes() {
 	// Create handlers
 	authHandler := authHandler.NewHandler(s.authClient, s.logger)
+	// userHandler := userHandler.NewHandler(s.userClient, s.logger)
 
 	// Setup router
-	SetupRouter(s.router, authHandler, s.logger)
+	SetupRouter(s.router,
+		authHandler,
+		// userHandler,
+		s.logger)
 }
 
 // Start starts the HTTP server
@@ -85,6 +96,10 @@ func (s *Server) Stop(ctx context.Context) error {
 	if s.authClient != nil {
 		s.authClient.Close()
 	}
+
+	// if s.userClient != nil {
+	// 	s.userClient.Close()
+	// }
 
 	// Shutdown HTTP server
 	return s.httpServer.Shutdown(ctx)

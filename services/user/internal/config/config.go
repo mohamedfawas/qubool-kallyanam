@@ -11,6 +11,12 @@ import (
 type Config struct {
 	GRPC     GRPCConfig     `mapstructure:"grpc"`
 	Database DatabaseConfig `mapstructure:"database"`
+	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
+}
+
+type RabbitMQConfig struct {
+	DSN          string `mapstructure:"dsn"`
+	ExchangeName string `mapstructure:"exchange_name"`
 }
 
 // GRPCConfig represents gRPC server configuration

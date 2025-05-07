@@ -4,11 +4,24 @@ WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
-# Copy only necessary go.mod files
-COPY pkg/go.mod pkg/go.sum ./pkg/
-COPY services/user/go.mod ./services/user/
+# Install required packages
+RUN apk add --no-cache git
 
-# Download dependencies
+# First, create a temporary module to download rabbitmq
+RUN mkdir -p /tmp/rabbitmq && \
+    cd /tmp/rabbitmq && \
+    go mod init tempmodule && \
+    go get github.com/rabbitmq/amqp091-go@v1.8.1
+
+# Copy pkg module first and install rabbitmq dependency
+COPY pkg/go.mod pkg/go.sum ./pkg/
+WORKDIR /app/pkg
+RUN go mod edit -require=github.com/rabbitmq/amqp091-go@v1.8.1 && \
+    go mod download -x
+
+# Copy and download other module dependencies
+WORKDIR /app
+COPY services/user/go.mod services/user/go.sum ./services/user/
 WORKDIR /app/services/user
 RUN go mod download -x
 
@@ -19,24 +32,30 @@ COPY services/user/ ./services/user/
 
 # Build the application
 WORKDIR /app/services/user
-RUN CGO_ENABLED=0 go build -o /user ./cmd/main.go
+RUN go mod tidy && \
+    CGO_ENABLED=0 go build -o /user ./cmd/main.go
 
 # Install grpc_health_probe
 RUN GRPC_HEALTH_PROBE_VERSION=v0.4.19 && \
     wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
     chmod +x /bin/grpc_health_probe
 
-# Use a small image for the final stage
+# Final stage
 FROM alpine:latest
 
 WORKDIR /app
 
-# Copy binary and health probe from builder stage
+# Copy binary and health probe
 COPY --from=builder /user .
 COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe
 
 # Copy config file
 COPY services/user/configs/config.yaml ./configs/
+
+# Override localhost in the config with proper container names
+RUN sed -i 's/host: localhost/host: postgres/g' /app/configs/config.yaml && \
+    sed -i 's/host: localhost/host: redis/g' /app/configs/config.yaml && \
+    sed -i 's|amqp://guest:guest@localhost:5672/|amqp://guest:guest@rabbitmq:5672/|g' /app/configs/config.yaml
 
 # Expose port
 EXPOSE 50053

@@ -13,6 +13,7 @@ import (
 
 	authpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/auth/v1"
 	pgdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/messaging/rabbitmq"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/adapters/postgres"
 
 	"time"
@@ -31,11 +32,12 @@ import (
 
 // Server represents the gRPC server
 type Server struct {
-	config      *config.Config
-	logger      logging.Logger
-	grpcServer  *grpc.Server
-	pgClient    *pgdb.Client
-	redisClient *redisdb.Client
+	config       *config.Config
+	logger       logging.Logger
+	grpcServer   *grpc.Server
+	pgClient     *pgdb.Client
+	redisClient  *redisdb.Client
+	rabbitClient *rabbitmq.Client
 }
 
 // NewServer creates a new gRPC server
@@ -64,6 +66,12 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create redis client: %w", err)
 	}
 
+	// Initialize RabbitMQ client
+	rabbitClient, err := rabbitmq.NewClient(cfg.RabbitMQ.DSN, cfg.RabbitMQ.ExchangeName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RabbitMQ client: %w", err)
+	}
+
 	// Create gRPC server with options for better error handling
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
@@ -75,16 +83,22 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 	)
 
 	// Configure and register all services
-	if err := registerServices(grpcServer, pgClient.DB, redisClient.GetClient(), cfg, logger); err != nil {
+	if err := registerServices(grpcServer,
+		pgClient.DB,
+		redisClient.GetClient(),
+		cfg,
+		logger,
+		rabbitClient); err != nil {
 		return nil, fmt.Errorf("failed to register services: %w", err)
 	}
 
 	return &Server{
-		config:      cfg,
-		logger:      logger,
-		grpcServer:  grpcServer,
-		pgClient:    pgClient,
-		redisClient: redisClient,
+		config:       cfg,
+		logger:       logger,
+		grpcServer:   grpcServer,
+		pgClient:     pgClient,
+		redisClient:  redisClient,
+		rabbitClient: rabbitClient,
 	}, nil
 }
 
@@ -95,6 +109,7 @@ func registerServices(
 	redisClient *redis.Client,
 	cfg *config.Config,
 	logger logging.Logger,
+	rabbitClient *rabbitmq.Client,
 ) error {
 	// Register health service
 	health.RegisterHealthService(grpcServer, db, redisClient)
@@ -161,6 +176,7 @@ func registerServices(
 		logger,
 		time.Duration(cfg.Auth.JWT.AccessTokenMinutes)*time.Minute,
 		time.Duration(cfg.Auth.JWT.RefreshTokenDays)*24*time.Hour,
+		rabbitClient,
 	)
 
 	// Create and register auth handler
@@ -224,5 +240,9 @@ func (s *Server) Stop() {
 
 	if s.redisClient != nil {
 		s.redisClient.Close()
+	}
+
+	if s.rabbitClient != nil {
+		s.rabbitClient.Close()
 	}
 }

@@ -35,6 +35,19 @@ services:
       retries: 5
     networks:
       - quboolkallyanam-network
+  
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - quboolkallyanam-network
 
   mongodb:
     image: mongo:latest
@@ -81,6 +94,26 @@ services:
     networks:
       - quboolkallyanam-network
 
+  user-migrations:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.migration
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=qubool_kallyanam_user
+      - DB_SSLMODE=disable
+      - MIGRATIONS_DIR=/app/migrations
+    volumes:
+      - ../../services/user/migrations/postgres:/app/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - quboolkallyanam-network
   # Services
   auth:
     build:
@@ -102,6 +135,8 @@ services:
       - EMAIL_FROM=noreply@quboolkallyanam.com
       - EMAIL_FROM_NAME=Qubool Kallyanam
       - LOG_LEVEL=debug
+      - RABBITMQ_DSN=amqp://guest:guest@rabbitmq:5672/
+      - RABBITMQ_EXCHANGE_NAME=qubool_events
     ports:
       - "50051:50051"
     restart: always
@@ -109,6 +144,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       auth-migrations:
         condition: service_completed_successfully
@@ -118,6 +155,44 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+      start_period: 40s
+    networks:
+      - quboolkallyanam-network
+
+  user:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.user
+    environment:
+      - CONFIG_PATH=/app/configs/config.yaml
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=qubool_kallyanam_user
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=debug
+      - RABBITMQ_DSN=amqp://guest:guest@rabbitmq:5672/
+      - RABBITMQ_EXCHANGE_NAME=qubool_events
+    ports:
+      - "50053:50053"
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-migrations:
+        condition: service_completed_successfully
+    entrypoint: ["sh", "-c", "sleep 15 && ./user"]
+    healthcheck:
+      test: ["CMD-SHELL", "grpc_health_probe -addr=:50053 || exit 1"]
+      interval: 10s    
+      timeout: 10s
+      retries: 10       
       start_period: 40s
     networks:
       - quboolkallyanam-network
@@ -138,31 +213,6 @@ services:
   #   healthcheck:
   #     test: ["CMD-SHELL", "grpc_health_probe -addr=:50052 || exit 1"]
   #     interval: 10s     
-  #     timeout: 10s
-  #     retries: 10       
-  #     start_period: 40s
-  #   networks:
-  #     - quboolkallyanam-network
-
-  # user:
-  #   build:
-  #     context: ../../
-  #     dockerfile: deploy/docker/Dockerfile.user
-  #   environment:
-  #     - DB_HOST=postgres
-  #     - REDIS_HOST=redis
-  #   ports:
-  #     - "50053:50053"
-  #   restart: always
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   entrypoint: ["sh", "-c", "sleep 10 && ./user"]
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "grpc_health_probe -addr=:50053 || exit 1"]
-  #     interval: 10s    
   #     timeout: 10s
   #     retries: 10       
   #     start_period: 40s
@@ -203,6 +253,8 @@ services:
       - "8080:8080"
     depends_on:
       auth:
+        condition: service_healthy
+      user:
         condition: service_healthy
       # admin:
       #   condition: service_healthy

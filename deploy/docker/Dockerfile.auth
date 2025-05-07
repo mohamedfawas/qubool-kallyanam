@@ -4,12 +4,25 @@ WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
-# Copy necessary go.mod files
-COPY api/go.mod ./api/
-COPY pkg/go.mod pkg/go.sum ./pkg/
-COPY services/auth/go.mod services/auth/go.sum ./services/auth/
+# Install required packages
+RUN apk add --no-cache git
 
-# Download dependencies
+# First, create a temporary module to download rabbitmq
+RUN mkdir -p /tmp/rabbitmq && \
+    cd /tmp/rabbitmq && \
+    go mod init tempmodule && \
+    go get github.com/rabbitmq/amqp091-go@v1.8.1
+
+# Copy pkg module first and install rabbitmq dependency
+COPY pkg/go.mod pkg/go.sum ./pkg/
+WORKDIR /app/pkg
+RUN go mod edit -require=github.com/rabbitmq/amqp091-go@v1.8.1 && \
+    go mod download -x
+
+# Copy and download other module dependencies
+WORKDIR /app
+COPY api/go.mod ./api/
+COPY services/auth/go.mod services/auth/go.sum ./services/auth/
 WORKDIR /app/services/auth
 RUN go mod download -x
 
@@ -21,7 +34,8 @@ COPY services/auth/ ./services/auth/
 
 # Build the application
 WORKDIR /app/services/auth
-RUN CGO_ENABLED=0 go build -o /auth ./cmd/main.go
+RUN go mod tidy && \
+    CGO_ENABLED=0 go build -o /auth ./cmd/main.go
 
 # Install grpc_health_probe
 RUN GRPC_HEALTH_PROBE_VERSION=v0.4.19 && \
@@ -43,6 +57,11 @@ COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe
 RUN mkdir -p /app/configs
 COPY services/auth/configs/config.yaml /app/configs/
 
+# Override localhost in the config with proper container names
+RUN sed -i 's/host: localhost/host: postgres/g' /app/configs/config.yaml && \
+    sed -i 's/host: localhost/host: redis/g' /app/configs/config.yaml && \
+    sed -i 's|amqp://guest:guest@localhost:5672/|amqp://guest:guest@rabbitmq:5672/|g' /app/configs/config.yaml
+    
 # Expose port
 EXPOSE 50051
 

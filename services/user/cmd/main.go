@@ -1,38 +1,43 @@
 package main
 
 import (
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/server"
 )
 
 func main() {
+	// Initialize logger
+	logger := logging.Default()
+
 	// Load configuration
 	configPath := "./configs/config.yaml"
 	if envPath := os.Getenv("CONFIG_PATH"); envPath != "" {
 		configPath = envPath
 	}
 
+	logger.Info("Loading configuration", "path", configPath)
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logger.Fatal("Failed to load config", "error", err)
 	}
 
 	// Create server
+	logger.Info("Initializing server")
 	srv, err := server.NewServer(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		logger.Fatal("Failed to create server", "error", err)
 	}
 
 	// Start server in a goroutine
 	go func() {
-		log.Printf("Starting user service on port %d", cfg.GRPC.Port)
+		logger.Info("Starting user service", "port", cfg.GRPC.Port)
 		if err := srv.Start(); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+			logger.Fatal("Failed to start server", "error", err)
 		}
 	}()
 
@@ -41,7 +46,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server...")
 	srv.Stop()
-	log.Println("Server stopped")
+	logger.Info("Server stopped")
 }
