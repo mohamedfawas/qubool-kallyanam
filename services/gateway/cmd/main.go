@@ -53,10 +53,13 @@ func main() {
 
 	logger.Info("Shutting down server...")
 
-	// Create a deadline to wait for
+	// Create a context with a timeout of 10 seconds to wait for the server to shut down gracefully.
+	// This prevents the shutdown from hanging indefinitely.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	defer cancel() // important for cleaning up resources and stopping any background processes related to that context.
+	// If the operation finishes early or you hit a timeout, cancel() ensures that the context is cleaned up.
 
+	// Stop the server gracefully
 	if err := srv.Stop(ctx); err != nil {
 		logger.Error("Server forced to shutdown", "error", err)
 	}

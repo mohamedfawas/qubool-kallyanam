@@ -59,3 +59,54 @@ func (r *ProfileRepo) ProfileExists(ctx context.Context, userID uuid.UUID) (bool
 		Error
 	return count > 0, err
 }
+
+func (r *ProfileRepo) UpdateProfile(ctx context.Context, profile *models.UserProfile) error {
+	result := r.db.WithContext(ctx).Model(&models.UserProfile{}).
+		Where("user_id = ?", profile.UserID).
+		Updates(map[string]interface{}{
+			"is_bride":                profile.IsBride,
+			"full_name":               profile.FullName,
+			"date_of_birth":           profile.DateOfBirth,
+			"height_cm":               profile.HeightCM,
+			"physically_challenged":   profile.PhysicallyChallenged,
+			"community":               profile.Community,
+			"marital_status":          profile.MaritalStatus,
+			"profession":              profile.Profession,
+			"profession_type":         profile.ProfessionType,
+			"highest_education_level": profile.HighestEducationLevel,
+			"home_district":           profile.HomeDistrict,
+			"updated_at":              profile.UpdatedAt,
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		// Profile doesn't exist
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
+
+// UpdateProfilePhoto updates the profile picture URL for a user
+func (r *ProfileRepo) UpdateProfilePhoto(ctx context.Context, userID uuid.UUID, photoURL string) error {
+	result := r.db.WithContext(ctx).Model(&models.UserProfile{}).
+		Where("user_id = ?", userID).
+		Updates(map[string]interface{}{
+			"profile_picture_url": photoURL,
+			"updated_at":          time.Now(),
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		// Profile doesn't exist
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}

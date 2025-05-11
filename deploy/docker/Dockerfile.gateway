@@ -4,7 +4,10 @@ WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
-# Copy necessary go.mod files
+# Install required packages (rarely changes)
+RUN apk add --no-cache git wget
+
+# Copy necessary go.mod files first (rarely changes)
 COPY api/go.mod ./api/
 COPY pkg/go.mod pkg/go.sum ./pkg/
 COPY services/gateway/go.mod services/gateway/go.sum ./services/gateway/
@@ -13,7 +16,7 @@ COPY services/gateway/go.mod services/gateway/go.sum ./services/gateway/
 WORKDIR /app/services/gateway
 RUN go mod download -x
 
-# Copy source code
+# Now copy the source code (changes frequently)
 WORKDIR /app
 COPY api/ ./api/
 COPY pkg/ ./pkg/

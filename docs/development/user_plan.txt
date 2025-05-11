@@ -1,0 +1,419 @@
+
+# User Service API Documentation
+
+## Profile Management
+
+### Get User Profile
+**Endpoint:** `/user/profile`  
+**Method:** GET  
+**Description:** Retrieves user profile details  
+**Request:** No body required (uses JWT token for authentication)  
+**Response:**
+```
+{
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "is_bride": false,
+  "full_name": "John Doe",
+  "phone": "+917012345678",
+  "date_of_birth": "1990-01-01",
+  "height_cm": 175,
+  "physically_challenged": false,
+  "community": "sunni",
+  "marital_status": "never_married",
+  "profession": "engineer",
+  "profession_type": "full_time",
+  "highest_education_level": "under_graduation",
+  "home_district": "malappuram",
+  "last_login": "2024-05-10T13:45:30Z"
+}
+```
+
+### Create User Profile
+**Endpoint:** `/user/profile`  
+**Method:** POST  
+**Description:** Creates a new user profile  
+**Request:**
+```
+{
+  "is_bride": false,
+  "full_name": "John Doe",
+  "date_of_birth": "1990-01-01",
+  "height_cm": 175,
+  "physically_challenged": false,
+  "community": "sunni",
+  "marital_status": "never_married",
+  "profession": "engineer",
+  "profession_type": "full_time",
+  "highest_education_level": "under_graduation",
+  "home_district": "malappuram"
+}
+```
+**Response:**
+```
+{
+  "message": "Profile created successfully",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### Update User Profile
+**Endpoint:** `/user/profile`  
+**Method:** PATCH  
+**Description:** Updates existing user profile  
+**Request:** (only include fields to update)
+```
+{
+  "full_name": "John K Doe",
+  "height_cm": 176,
+  "profession": "doctor",
+  "profession_type": "self_employed"
+}
+```
+**Response:**
+```
+{
+  "message": "Profile updated successfully"
+}
+```
+
+### Deactivate Account
+**Endpoint:** `/user/profile`  
+**Method:** DELETE  
+**Description:** Deactivates user account  
+**Request:** No body required  
+**Response:**
+```
+{
+  "message": "Account deactivated successfully"
+}
+```
+
+## Photo Management
+
+### Upload Profile Photo
+**Endpoint:** `/user/photo/profile`  
+**Method:** POST  
+**Description:** Uploads primary profile photo  
+**Request:** Form data with photo file (max 5MB)  
+**Response:**
+```
+{
+  "photo_id": "550e8400-e29b-41d4-a716-446655440001",
+  "s3_url": "https://qubool-photos.s3.amazonaws.com/user/550e8400-e29b-41d4-a716-446655440000/profile.jpg",
+  "is_primary": true,
+  "uploaded_at": "2024-05-10T14:00:00Z"
+}
+```
+
+### Get All Photos
+**Endpoint:** `/user/photos`  
+**Method:** GET  
+**Description:** Retrieves all user photos  
+**Request:** No body required  
+**Response:**
+```
+{
+  "photos": [
+    {
+      "photo_id": "550e8400-e29b-41d4-a716-446655440001",
+      "s3_url": "https://qubool-photos.s3.amazonaws.com/user/550e8400-e29b-41d4-a716-446655440000/profile.jpg",
+      "is_primary": true,
+      "uploaded_at": "2024-05-10T14:00:00Z"
+    },
+    {
+      "photo_id": "550e8400-e29b-41d4-a716-446655440002",
+      "s3_url": "https://qubool-photos.s3.amazonaws.com/user/550e8400-e29b-41d4-a716-446655440000/photo2.jpg",
+      "is_primary": false,
+      "uploaded_at": "2024-05-10T14:05:00Z"
+    }
+  ]
+}
+```
+
+### Upload Additional Photos
+**Endpoint:** `/user/photos`  
+**Method:** POST  
+**Description:** Uploads additional photos (max 3 total including primary)  
+**Request:** Form data with photo files  
+**Response:**
+```
+{
+  "photos": [
+    {
+      "photo_id": "550e8400-e29b-41d4-a716-446655440002",
+      "s3_url": "https://qubool-photos.s3.amazonaws.com/user/550e8400-e29b-41d4-a716-446655440000/photo2.jpg",
+      "is_primary": false,
+      "uploaded_at": "2024-05-10T14:05:00Z"
+    }
+  ]
+}
+```
+
+### Delete Photo
+**Endpoint:** `/user/photos/{photo_id}`  
+**Method:** DELETE  
+**Description:** Deletes specific photo  
+**Request:** No body required  
+**Response:**
+```
+{
+  "message": "Photo deleted successfully"
+}
+```
+
+## Partner Preferences
+
+### Get Partner Preferences
+**Endpoint:** `/user/partner-preferences`  
+**Method:** GET  
+**Description:** Retrieves partner preferences  
+**Request:** No body required  
+**Response:**
+```
+{
+  "min_age": 25,
+  "max_age": 35,
+  "min_height": 160,
+  "max_height": 180,
+  "marital_statuses": ["never_married", "divorced"],
+  "districts": ["malappuram", "kozhikode", "ernakulam"],
+  "education_levels": ["under_graduation", "post_graduation"],
+  "professions": ["doctor", "engineer", "teacher"]
+}
+```
+
+### Create Partner Preferences
+**Endpoint:** `/user/partner-preferences`  
+**Method:** POST  
+**Description:** Creates partner preferences  
+**Request:**
+```
+{
+  "min_age": 25,
+  "max_age": 35,
+  "min_height": 160,
+  "max_height": 180,
+  "marital_statuses": ["never_married", "divorced"],
+  "districts": ["malappuram", "kozhikode", "ernakulam"],
+  "education_levels": ["under_graduation", "post_graduation"],
+  "professions": ["doctor", "engineer", "teacher"]
+}
+```
+**Response:**
+```
+{
+  "message": "Preferences created successfully"
+}
+```
+
+### Update Partner Preferences
+**Endpoint:** `/user/partner-preferences`  
+**Method:** PATCH  
+**Description:** Updates partner preferences  
+**Request:** (only include fields to update)
+```
+{
+  "min_age": 27,
+  "max_age": 37,
+  "districts": ["malappuram", "kozhikode", "ernakulam", "thrissur"]
+}
+```
+**Response:**
+```
+{
+  "message": "Preferences updated successfully"
+}
+```
+
+## Profile Search
+
+### Search Profiles
+**Endpoint:** `/user/search`  
+**Method:** GET  
+**Description:** Searches for profiles matching criteria  
+**Request Parameters:**
+- gender: bride/groom
+- min_age: minimum age (18-100)
+- max_age: maximum age (18-100)
+- min_height: minimum height in cm (100-250)
+- max_height: maximum height in cm (100-250)
+- marital_status: array of statuses
+- districts: array of districts
+- education_levels: array of education levels
+- professions: array of professions
+- page: page number (default 1)
+- limit: results per page (default 20, max 100)
+
+**Response:**
+```
+{
+  "profiles": [
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440010",
+      "full_name": "Jane Doe",
+      "age": 28,
+      "height_cm": 165,
+      "marital_status": "never_married",
+      "community": "sunni",
+      "profession": "doctor",
+      "education_level": "post_graduation",
+      "home_district": "kozhikode",
+      "profile_photo": "https://qubool-photos.s3.amazonaws.com/user/550e8400-e29b-41d4-a716-446655440010/profile.jpg"
+    },
+    // More profiles...
+  ],
+  "total": 42,
+  "page": 1,
+  "limit": 20
+}
+```
+
+## Interest Management
+
+### Send Interest
+**Endpoint:** `/user/interest`  
+**Method:** POST  
+**Description:** Sends interest request to another user  
+**Request:**
+```
+{
+  "to_user_id": "550e8400-e29b-41d4-a716-446655440010"
+}
+```
+**Response:**
+```
+{
+  "message": "Interest request sent",
+  "request_id": "550e8400-e29b-41d4-a716-446655440020"
+}
+```
+
+### Get Received Interests
+**Endpoint:** `/user/interests/received`  
+**Method:** GET  
+**Description:** Retrieves interests received from other users  
+**Request Parameters:**
+- status: pending/accepted/rejected (optional)
+- page: page number (default 1)
+
+**Response:**
+```
+{
+  "requests": [
+    {
+      "request_id": "550e8400-e29b-41d4-a716-446655440021",
+      "from_user": {
+        "user_id": "550e8400-e29b-41d4-a716-446655440011",
+        "name": "Ahmed Khan",
+        "profile_photo": "https://qubool-photos.s3.amazonaws.com/user/550e8400-e29b-41d4-a716-446655440011/profile.jpg"
+      },
+      "status": "pending",
+      "created_at": "2024-05-10T10:30:00Z"
+    },
+    // More requests...
+  ],
+  "total": 5
+}
+```
+
+### Get Sent Interests
+**Endpoint:** `/user/interests/sent`  
+**Method:** GET  
+**Description:** Retrieves interests sent to other users  
+**Request Parameters:**
+- status: pending/accepted/rejected (optional)
+
+**Response:**
+```
+{
+  "requests": [
+    {
+      "request_id": "550e8400-e29b-41d4-a716-446655440020",
+      "to_user": {
+        "user_id": "550e8400-e29b-41d4-a716-446655440010",
+        "name": "Jane Doe",
+        "profile_photo": "https://qubool-photos.s3.amazonaws.com/user/550e8400-e29b-41d4-a716-446655440010/profile.jpg"
+      },
+      "status": "pending",
+      "created_at": "2024-05-10T14:15:00Z"
+    },
+    // More requests...
+  ],
+  "total": 3
+}
+```
+
+### Accept Interest
+**Endpoint:** `/user/interest/{request_id}/accept`  
+**Method:** POST  
+**Description:** Accepts an interest request  
+**Request:** No body required  
+**Response:**
+```
+{
+  "message": "Interest request accepted"
+}
+```
+
+### Reject Interest
+**Endpoint:** `/user/interest/{request_id}/reject`  
+**Method:** POST  
+**Description:** Rejects an interest request  
+**Request:** No body required  
+**Response:**
+```
+{
+  "message": "Interest request rejected"
+}
+```
+
+### Withdraw Interest
+**Endpoint:** `/user/interest/{request_id}`  
+**Method:** DELETE  
+**Description:** Withdraws previously sent interest request  
+**Request:** No body required  
+**Response:**
+```
+{
+  "message": "Interest request withdrawn"
+}
+```
+
+## Subscription Management
+
+### Create Subscription
+**Endpoint:** `/user/subscribe`  
+**Method:** POST  
+**Description:** Creates Razorpay subscription order  
+**Request:** No body required  
+**Response:**
+```
+{
+  "order_id": "order_123",
+  "amount": 49900,
+  "currency": "INR",
+  "receipt": "receipt_123",
+  "status": "created"
+}
+```
+
+### Get Subscription Status
+**Endpoint:** `/user/subscription`  
+**Method:** GET  
+**Description:** Retrieves current subscription status  
+**Request:** No body required  
+**Response:**
+```
+{
+  "status": "active",
+  "plan_type": "premium",
+  "start_date": "2024-05-01",
+  "end_date": "2025-05-01",
+  "payment_status": "captured"
+}
+```
+
+### Webhook (Internal)
+**Endpoint:** `/user/subscription/webhook`  
+**Method:** POST  
+**Description:** Handles Razorpay payment webhooks (not for direct client use)

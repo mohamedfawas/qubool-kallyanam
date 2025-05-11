@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/utils/indianstandardtime"
 )
 
 // Role represents user roles
@@ -16,7 +17,7 @@ const (
 	RoleAdmin       Role = "ADMIN"
 )
 
-// ServiceAccess defines which services a user can access
+// ServiceAccess defines which parts (services) of the system a user can use.
 type ServiceAccess struct {
 	Auth  bool `json:"auth"`
 	User  bool `json:"user"`
@@ -24,7 +25,7 @@ type ServiceAccess struct {
 	Admin bool `json:"admin"`
 }
 
-// GetServiceAccessByRole returns service access permissions based on role
+// GetServiceAccessByRole returns what services a user can access based on their role.
 func GetServiceAccessByRole(role Role) ServiceAccess {
 	switch role {
 	case RoleAdmin:
@@ -45,7 +46,7 @@ func GetServiceAccessByRole(role Role) ServiceAccess {
 		return ServiceAccess{
 			Auth:  true,
 			User:  true,
-			Chat:  true,
+			Chat:  false,
 			Admin: false,
 		}
 	default:
@@ -58,26 +59,24 @@ func GetServiceAccessByRole(role Role) ServiceAccess {
 	}
 }
 
-// Config holds JWT configuration
+// Config contains configuration used to create and validate tokens.
 type Config struct {
-	SecretKey       string
-	AccessTokenTTL  time.Duration
-	RefreshTokenTTL time.Duration
-	Issuer          string
+	SecretKey       string        // Secret used to sign the token (keep this safe!)
+	AccessTokenTTL  time.Duration // How long the access token is valid (e.g. 15 minutes)
+	RefreshTokenTTL time.Duration // How long the refresh token is valid (e.g. 7 days)
+	Issuer          string        // The name or source of the token (usually your app name)
 }
 
-// Claims represents JWT claims with user info and permissions
+// Claims represents the data stored inside a JWT.
+// This includes user ID, role, services allowed, etc.
 type Claims struct {
-	UserID       uint          `json:"user_id"`
-	Role         Role          `json:"role"`
-	Services     ServiceAccess `json:"services"`
-	Verified     bool          `json:"verified"`
-	PremiumUntil *int64        `json:"premium_until,omitempty"`
-	UserIDString string        `json:"user_id_string,omitempty"` // Add this field
-	jwt.RegisteredClaims
+	UserID               string        `json:"user_id"`  // UUID string identifier , Example: "123e4567-e89b-12d3-a456-426614174000"
+	Role                 Role          `json:"role"`     // USER, PREMIUM_USER, or ADMIN
+	Services             ServiceAccess `json:"services"` // Services user is allowed to access
+	jwt.RegisteredClaims               // Includes standard JWT fields like expiration, issued at, etc.
 }
 
-// Manager handles JWT operations
+// Manager is the main struct that handles all JWT-related operations.
 type Manager struct {
 	config Config
 }
@@ -89,36 +88,43 @@ func NewManager(config Config) *Manager {
 	}
 }
 
-// GenerateAccessToken generates a new JWT access token
-func (m *Manager) GenerateAccessToken(userID uint, role Role, verified bool, premiumUntil *int64, userIDString string) (string, error) {
-	now := time.Now()
+// GenerateAccessToken creates a new access token (short-lived).
+func (m *Manager) GenerateAccessToken(userID string,
+	role Role,
+	verified bool,
+	premiumUntil *int64) (string, error) {
+
+	now := indianstandardtime.Now()
 	services := GetServiceAccessByRole(role)
 
+	// Create the claims
 	claims := &Claims{
-		UserID:       userID,
-		Role:         role,
-		Services:     services,
-		Verified:     verified,
-		PremiumUntil: premiumUntil,
-		UserIDString: userIDString, // Set the UUID string in claims
+		UserID:   userID,
+		Role:     role,
+		Services: services,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.AccessTokenTTL)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    m.config.Issuer,
+			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.AccessTokenTTL)), // When token expires
+			IssuedAt:  jwt.NewNumericDate(now),                              // When token was issued
+			NotBefore: jwt.NewNumericDate(now),                              // When token becomes valid
+			Issuer:    m.config.Issuer,                                      // Who issued the token
 		},
 	}
 
+	// Create a new token using HMAC SHA256 signing method
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	// Sign the token using the secret key and return it
 	return token.SignedString([]byte(m.config.SecretKey))
 }
 
-// GenerateRefreshToken generates a new JWT refresh token
-func (m *Manager) GenerateRefreshToken(userID uint, userIDString string) (string, error) {
-	now := time.Now()
+// GenerateRefreshToken creates a long-lived refresh token.
+// Used to get a new access token without logging in again.
+func (m *Manager) GenerateRefreshToken(userID string) (string, error) {
+	now := indianstandardtime.Now()
+
+	// Refresh token only stores minimal info: just the user ID
 	claims := &Claims{
-		UserID:       userID,
-		UserIDString: userIDString, // Set the UUID string in claims
+		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.RefreshTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -131,20 +137,27 @@ func (m *Manager) GenerateRefreshToken(userID uint, userIDString string) (string
 	return token.SignedString([]byte(m.config.SecretKey))
 }
 
-// ValidateToken validates a JWT token and returns claims
+// ValidateToken takes a token string and verifies its validity.
+// If valid, it returns the claims (user data inside).
 func (m *Manager) ValidateToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
+
+	// Parse and validate the token with claims
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		// Ensure the token was signed with HMAC
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(m.config.SecretKey), nil
 	})
 
+	// If the token failed to parse or verify (e.g., invalid signature, expired, tampered), return an error.
 	if err != nil {
 		return nil, err
 	}
 
+	// Additional validation in case the token parsed successfully but is still considered invalid.
+	// Example: token was manually created with correct structure but wrong signature.
 	if !token.Valid {
 		return nil, fmt.Errorf("invalid token")
 	}
@@ -152,7 +165,8 @@ func (m *Manager) ValidateToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
-// CheckServiceAccess checks if the user has access to a specific service
+// CheckServiceAccess determines if a user has permission to access a given service.
+// Example: If a user tries to access "admin" panel, this function checks if allowed.
 func (m *Manager) CheckServiceAccess(claims *Claims, service string) bool {
 	switch service {
 	case "auth":

@@ -1,11 +1,12 @@
 FROM golang:1.23.4-alpine AS builder
 
+
 WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
 # Install required packages
-RUN apk add --no-cache git
+RUN apk add --no-cache git wget
 
 # First, create a temporary module to download rabbitmq
 RUN mkdir -p /tmp/rabbitmq && \
@@ -13,7 +14,10 @@ RUN mkdir -p /tmp/rabbitmq && \
     go mod init tempmodule && \
     go get github.com/rabbitmq/amqp091-go@v1.8.1
 
-# Copy pkg module first and install rabbitmq dependency
+# Copy API module first to ensure it's available
+COPY api/ ./api/
+
+# Copy pkg module and install rabbitmq dependency
 COPY pkg/go.mod pkg/go.sum ./pkg/
 WORKDIR /app/pkg
 RUN go mod edit -require=github.com/rabbitmq/amqp091-go@v1.8.1 && \
@@ -25,7 +29,7 @@ COPY services/user/go.mod services/user/go.sum ./services/user/
 WORKDIR /app/services/user
 RUN go mod download -x
 
-# Copy source code
+# Now copy the rest of the source code
 WORKDIR /app
 COPY pkg/ ./pkg/
 COPY services/user/ ./services/user/

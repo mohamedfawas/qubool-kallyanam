@@ -8,10 +8,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/user"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
 	authHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
+	userHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/user"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
 )
 
 // Server represents the HTTP server
@@ -21,49 +25,73 @@ type Server struct {
 	httpServer *http.Server
 	router     *gin.Engine
 	authClient *auth.Client
+	userClient *user.Client
+	jwtManager *jwt.Manager
+	auth       *middleware.Auth
 }
 
 // NewServer creates a new server instance
 func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
-	// Set Gin mode based on environment
+	// Set Gin mode to "release" if running in production to disable debug logs
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Create router
+	// Create a new Gin router instance for handling incoming HTTP requests
 	router := gin.New()
 
-	// Create auth client
+	// Initialize the authentication service client using the Auth service address from config
 	authClient, err := auth.NewClient(cfg.Services.Auth.Address)
 	if err != nil {
+		// Example: If Auth service is down or the address is incorrect, this error is returned
 		return nil, fmt.Errorf("failed to create auth client: %w", err)
 	}
 
-	// // Create user client
-	// userClient, err := user.NewClient(cfg.Services.User.Address)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to create user client: %w", err)
-	// }
-
-	// Create HTTP server
-	httpServer := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.HTTP.Port),
-		Handler:      router,
-		ReadTimeout:  time.Second * time.Duration(cfg.HTTP.ReadTimeoutSecs),
-		WriteTimeout: time.Second * time.Duration(cfg.HTTP.WriteTimeoutSecs),
-		IdleTimeout:  time.Second * time.Duration(cfg.HTTP.IdleTimeoutSecs),
+	// Initialize the user service client using the User service address from config
+	userClient, err := user.NewClient(cfg.Services.User.Address)
+	if err != nil {
+		// Example: If User service is unreachable, this error helps catch that early
+		return nil, fmt.Errorf("failed to create user client: %w", err)
 	}
 
+	// Create JWT Manager for token validation
+	jwtManager := jwt.NewManager(jwt.Config{
+		SecretKey:       cfg.Auth.JWT.SecretKey,
+		AccessTokenTTL:  time.Duration(cfg.Auth.JWT.AccessTokenMinutes) * time.Minute,
+		RefreshTokenTTL: time.Duration(cfg.Auth.JWT.RefreshTokenDays) * 24 * time.Hour,
+		Issuer:          cfg.Auth.JWT.Issuer,
+	})
+
+	// Create auth middleware
+	auth := middleware.NewAuth(jwtManager)
+
+	// Define the HTTP server with necessary configurations (port, timeouts, router)
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.HTTP.Port), // Sets the port to run on, e.g., ":8080"
+		Handler: router,                            // Connect the Gin router to the server
+		// ReadTimeout is the maximum duration for reading the entire request (including body).
+		ReadTimeout: time.Second * time.Duration(cfg.HTTP.ReadTimeoutSecs),
+		// WriteTimeout is the maximum duration for writing the response to the client.
+		WriteTimeout: time.Second * time.Duration(cfg.HTTP.WriteTimeoutSecs), // Max time to write a response
+		// IdleTimeout is the maximum time to wait for the next request when keep-alives are enabled.
+		// This applies to persistent connections where the client can reuse the same connection.
+		// Example: If a client stays idle for more than IdleTimeoutSecs = 30, the server closes the connection.
+		IdleTimeout: time.Second * time.Duration(cfg.HTTP.IdleTimeoutSecs), // Timeout when idle
+	}
+
+	// Create the Server instance with all components
 	server := &Server{
 		config:     cfg,
 		logger:     logger,
 		httpServer: httpServer,
 		router:     router,
 		authClient: authClient,
-		// userClient: userClient,
+		userClient: userClient,
+		jwtManager: jwtManager,
+		auth:       auth,
 	}
 
-	// Initialize routes
+	// Register all API routes
 	server.setupRoutes()
 
 	return server, nil
@@ -71,14 +99,21 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 
 // setupRoutes configures all routes
 func (s *Server) setupRoutes() {
-	// Create handlers
+	// Create the authentication handler by passing the authClient and logger.
+	// Example: If a user sends a login request, this handler will forward it
+	// to the Auth microservice using the authClient.
 	authHandler := authHandler.NewHandler(s.authClient, s.logger)
-	// userHandler := userHandler.NewHandler(s.userClient, s.logger)
 
-	// Setup router
+	// Create the user handler by passing the userClient and logger.
+	userHandler := userHandler.NewHandler(s.userClient, s.logger)
+
+	// SetupRouter is a helper function that actually connects the route paths
+	// (like "/v1/auth/login" or "/v1/user/profile") to the appropriate handler functions
+	// in the authHandler and userHandler.
 	SetupRouter(s.router,
 		authHandler,
-		// userHandler,
+		userHandler,
+		s.auth,
 		s.logger)
 }
 
@@ -91,16 +126,11 @@ func (s *Server) Start() error {
 // Stop stops the HTTP server
 func (s *Server) Stop(ctx context.Context) error {
 	s.logger.Info("Stopping HTTP server")
-
-	// Close clients
 	if s.authClient != nil {
 		s.authClient.Close()
 	}
-
-	// if s.userClient != nil {
-	// 	s.userClient.Close()
-	// }
-
-	// Shutdown HTTP server
+	if s.userClient != nil {
+		s.userClient.Close()
+	}
 	return s.httpServer.Shutdown(ctx)
 }

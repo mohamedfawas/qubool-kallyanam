@@ -1,3 +1,4 @@
+// File: auth/internal/server/server.go
 package server
 
 import (
@@ -5,7 +6,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -85,7 +85,7 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 	// Configure and register all services
 	if err := registerServices(grpcServer,
 		pgClient.DB,
-		redisClient.GetClient(),
+		redisClient,
 		cfg,
 		logger,
 		rabbitClient); err != nil {
@@ -106,18 +106,14 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 func registerServices(
 	grpcServer *grpc.Server,
 	db *gorm.DB,
-	redisClient *redis.Client,
+	redisClient *redisdb.Client,
 	cfg *config.Config,
 	logger logging.Logger,
 	rabbitClient *rabbitmq.Client,
 ) error {
 	// Register health service
-	health.RegisterHealthService(grpcServer, db, redisClient)
-
-	// Create repository
-	registrationRepo := postgres.NewRegistrationRepository(db)
-	tokenRepo := redisAdapter.NewTokenRepository(redisClient)
-	adminRepo := postgres.NewAdminRepository(db)
+	// Health service needs the raw Redis client
+	health.RegisterHealthService(grpcServer, db, redisClient.GetClient())
 
 	// Create JWT Manager
 	jwtManager := jwt.NewManager(jwt.Config{
@@ -130,7 +126,14 @@ func registerServices(
 	// Set up OTP components
 	otpConfig := otp.DefaultConfig()
 	otpGenerator := otp.NewGenerator(otpConfig)
-	otpStore := otp.NewStore(redisClient, otpConfig)
+
+	// Create repositories
+	registrationRepo := postgres.NewRegistrationRepository(db)
+	tokenRepo := redisAdapter.NewTokenRepository(redisClient.GetClient())
+	adminRepo := postgres.NewAdminRepository(db)
+
+	// Create OTP repository with our Redis client wrapper
+	otpRepo := redisAdapter.NewOTPRepository(redisClient)
 
 	// Set up email client
 	emailClient, err := email.NewClient(email.Config{
@@ -145,11 +148,12 @@ func registerServices(
 		return fmt.Errorf("failed to create email client: %w", err)
 	}
 
-	// Create service
+	// Create registration service with OTP repository
 	registrationService := services.NewRegistrationService(
 		registrationRepo,
+		otpRepo,
 		otpGenerator,
-		otpStore,
+		otpConfig.ExpiryTime,
 		emailClient,
 		logger,
 	)
@@ -171,7 +175,7 @@ func registerServices(
 	authService := services.NewAuthService(
 		registrationRepo,
 		tokenRepo,
-		adminRepo, // Add this parameter
+		adminRepo,
 		jwtManager,
 		logger,
 		time.Duration(cfg.Auth.JWT.AccessTokenMinutes)*time.Minute,

@@ -12,6 +12,7 @@ type Config struct {
 	Environment string         `mapstructure:"environment"`
 	HTTP        HTTPConfig     `mapstructure:"http"`
 	Services    ServicesConfig `mapstructure:"services"`
+	Auth        AuthConfig     `mapstructure:"auth"`
 }
 
 // HTTPConfig represents HTTP server configuration
@@ -26,6 +27,19 @@ type HTTPConfig struct {
 type ServicesConfig struct {
 	Auth ServiceConfig `mapstructure:"auth"`
 	User ServiceConfig `mapstructure:"user"`
+}
+
+// AuthConfig contains authentication-related configuration
+type AuthConfig struct {
+	JWT JWTConfig `mapstructure:"jwt"`
+}
+
+// JWTConfig contains JWT configuration
+type JWTConfig struct {
+	SecretKey          string `mapstructure:"secret_key"`
+	AccessTokenMinutes int    `mapstructure:"access_token_minutes"`
+	RefreshTokenDays   int    `mapstructure:"refresh_token_days"`
+	Issuer             string `mapstructure:"issuer"`
 }
 
 // ServiceConfig represents a service configuration
@@ -53,6 +67,15 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if authAddr := os.Getenv("AUTH_SERVICE_ADDRESS"); authAddr != "" {
 		config.Services.Auth.Address = authAddr
+	}
+
+	if userAddr := os.Getenv("USER_SERVICE_ADDRESS"); userAddr != "" {
+		config.Services.User.Address = userAddr
+	}
+
+	// JWT environment variables
+	if secretKey := os.Getenv("JWT_SECRET_KEY"); secretKey != "" {
+		config.Auth.JWT.SecretKey = secretKey
 	}
 
 	return &config, nil

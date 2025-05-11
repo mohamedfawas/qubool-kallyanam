@@ -4,29 +4,23 @@ WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
-# Install required packages
-RUN apk add --no-cache git
+# Install required packages (rarely changes)
+RUN apk add --no-cache git wget
 
-# First, create a temporary module to download rabbitmq
-RUN mkdir -p /tmp/rabbitmq && \
-    cd /tmp/rabbitmq && \
-    go mod init tempmodule && \
-    go get github.com/rabbitmq/amqp091-go@v1.8.1
-
-# Copy pkg module first and install rabbitmq dependency
+# Copy only go.mod and go.sum files first (rarely changes)
 COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY api/go.mod ./api/
+COPY services/auth/go.mod services/auth/go.sum ./services/auth/
+
+# Download all dependencies in one step
 WORKDIR /app/pkg
 RUN go mod edit -require=github.com/rabbitmq/amqp091-go@v1.8.1 && \
     go mod download -x
-
-# Copy and download other module dependencies
-WORKDIR /app
-COPY api/go.mod ./api/
-COPY services/auth/go.mod services/auth/go.sum ./services/auth/
+    
 WORKDIR /app/services/auth
 RUN go mod download -x
 
-# Copy source code
+# Now copy the source code (changes frequently)
 WORKDIR /app
 COPY api/ ./api/
 COPY pkg/ ./pkg/

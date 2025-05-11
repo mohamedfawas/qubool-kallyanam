@@ -1,99 +1,142 @@
+// gateway/internal/handlers/v1/user/user_profile.go
 package user
 
-// import (
-// 	"net/http"
+import (
+	"net/http"
+	"time"
 
-// 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
+	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/validation"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/user"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
+)
 
-// 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
-// 	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
-// 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/user"
-// )
+type Handler struct {
+	userClient *user.Client
+	logger     logging.Logger
+}
 
-// // Handler handles user-related HTTP requests
-// type Handler struct {
-// 	userClient *user.Client
-// 	logger     logging.Logger
-// }
+func NewHandler(userClient *user.Client, logger logging.Logger) *Handler {
+	return &Handler{
+		userClient: userClient,
+		logger:     logger,
+	}
+}
 
-// // NewHandler creates a new user handler
-// func NewHandler(userClient *user.Client, logger logging.Logger) *Handler {
-// 	return &Handler{
-// 		userClient: userClient,
-// 		logger:     logger,
-// 	}
-// }
+type UpdateProfileRequest struct {
+	IsBride               bool       `json:"is_bride"`
+	FullName              string     `json:"full_name"`
+	DateOfBirth           *time.Time `json:"date_of_birth"`
+	HeightCM              int        `json:"height_cm"`
+	PhysicallyChallenged  bool       `json:"physically_challenged"`
+	Community             string     `json:"community"`
+	MaritalStatus         string     `json:"marital_status"`
+	Profession            string     `json:"profession"`
+	ProfessionType        string     `json:"profession_type"`
+	HighestEducationLevel string     `json:"highest_education_level"`
+	HomeDistrict          string     `json:"home_district"`
+}
 
-// // CreateProfileRequest defines the request body for profile creation
-// type CreateProfileRequest struct {
-// 	Name          string    `json:"name" binding:"required"`
-// 	Age           int32     `json:"age" binding:"required,min=18,max=100"`
-// 	Gender        string    `json:"gender" binding:"required"`
-// 	Religion      string    `json:"religion"`
-// 	Caste         string    `json:"caste"`
-// 	MotherTongue  string    `json:"mother_tongue"`
-// 	MaritalStatus string    `json:"marital_status" binding:"required"`
-// 	HeightCm      int32     `json:"height_cm"`
-// 	Education     string    `json:"education"`
-// 	Occupation    string    `json:"occupation"`
-// 	AnnualIncome  int64     `json:"annual_income"`
-// 	Location      Location  `json:"location" binding:"required"`
-// 	About         string    `json:"about"`
-// }
+func (h *Handler) UpdateProfile(c *gin.Context) {
+	// Get user ID from context (previously set by auth middleware)
+	userID, exists := c.Get(middleware.UserIDKey)
+	if !exists {
+		h.logger.Debug("Missing user ID in context")
+		pkghttp.Error(c, pkghttp.NewUnauthorized("Authentication required", nil))
+		return
+	}
 
-// type Location struct {
-// 	City    string `json:"city"`
-// 	State   string `json:"state"`
-// 	Country string `json:"country" binding:"required"`
-// }
+	// Parse request body
+	var req UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.Error("Invalid request body", "error", err)
+		pkghttp.Error(c, pkghttp.NewBadRequest("Invalid request format", err))
+		return
+	}
 
-// // CreateProfileResponse defines the response for profile creation
-// type CreateProfileResponse struct {
-// 	Success bool   `json:"success"`
-// 	ID      string `json:"id"`
-// 	Message string `json:"message"`
-// }
+	// Validate input fields
+	if req.HeightCM != 0 {
+		if err := validation.ValidateHeight(&req.HeightCM); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
 
-// // CreateProfile handles profile creation
-// func (h *Handler) CreateProfile(c *gin.Context) {
-// 	var req CreateProfileRequest
-// 	if err := c.ShouldBindJSON(&req); err != nil {
-// 		h.logger.Error("Invalid profile request body", "error", err)
-// 		pkghttp.Error(c, pkghttp.NewBadRequest("Invalid request format", err))
-// 		return
-// 	}
+	if req.Community != "" {
+		if err := validation.ValidateCommunity(req.Community); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
 
-// 	// Call user service with data from request
-// 	success, id, message, err := h.userClient.CreateProfile(
-// 		c.Request.Context(),
-// 		req.Name,
-// 		req.Age,
-// 		req.Gender,
-// 		req.Religion,
-// 		req.Caste,
-// 		req.MotherTongue,
-// 		req.MaritalStatus,
-// 		req.HeightCm,
-// 		req.Education,
-// 		req.Occupation,
-// 		req.AnnualIncome,
-// 		req.Location.City,
-// 		req.Location.State,
-// 		req.Location.Country,
-// 		req.About,
-// 	)
-// 	if err != nil {
-// 		h.logger.Error("Profile creation failed", "error", err)
-// 		pkghttp.Error(c, pkghttp.FromGRPCError(err))
-// 		return
-// 	}
+	if req.MaritalStatus != "" {
+		if err := validation.ValidateMaritalStatus(req.MaritalStatus); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
 
-// 	response := CreateProfileResponse{
-// 		Success: success,
-// 		ID:      id,
-// 		Message: message,
-// 	}
+	if req.Profession != "" {
+		if err := validation.ValidateProfession(req.Profession); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
 
-// 	// Return success response with 201 Created status
-// 	pkghttp.Success(c, http.StatusCreated, message, response)
-// }
+	if req.ProfessionType != "" {
+		if err := validation.ValidateProfessionType(req.ProfessionType); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
+
+	if req.HighestEducationLevel != "" {
+		if err := validation.ValidateEducationLevel(req.HighestEducationLevel); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
+
+	if req.HomeDistrict != "" {
+		if err := validation.ValidateHomeDistrict(req.HomeDistrict); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
+
+	if req.DateOfBirth != nil {
+		if err := validation.ValidateDateOfBirth(req.DateOfBirth); err != nil {
+			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
+			return
+		}
+	}
+
+	// Call the user service with user ID from context
+	success, message, err := h.userClient.UpdateProfile(
+		c.Request.Context(),
+		userID.(string),
+		req.IsBride,
+		req.FullName,
+		req.DateOfBirth,
+		req.HeightCM,
+		req.PhysicallyChallenged,
+		req.Community,
+		req.MaritalStatus,
+		req.Profession,
+		req.ProfessionType,
+		req.HighestEducationLevel,
+		req.HomeDistrict,
+	)
+
+	if err != nil {
+		h.logger.Error("Failed to update profile", "error", err)
+		pkghttp.Error(c, pkghttp.FromGRPCError(err))
+		return
+	}
+
+	pkghttp.Success(c, http.StatusOK, message, gin.H{
+		"success": success,
+	})
+}

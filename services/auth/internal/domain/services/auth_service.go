@@ -172,22 +172,19 @@ func (s *AuthService) Logout(ctx context.Context, accessToken string) error {
 
 // RefreshToken validates a refresh token and issues new tokens
 func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error) {
-	// Validate the refresh token format and signature
 	claims, err := s.jwtManager.ValidateToken(refreshToken)
 	if err != nil {
 		s.logger.Debug("Refresh token validation failed", "error", err)
 		return nil, ErrInvalidRefreshToken
 	}
 
-	// Extract user ID string from token claims
-	userIDStr := claims.UserIDString
-	if userIDStr == "" {
-		s.logger.Debug("Refresh token missing user ID string claim")
+	userID := claims.UserID
+	if userID == "" {
+		s.logger.Debug("Refresh token missing user ID claim")
 		return nil, ErrInvalidRefreshToken
 	}
 
-	// Check if the refresh token is valid in Redis
-	valid, err := s.tokenRepo.ValidateRefreshToken(ctx, userIDStr, refreshToken)
+	valid, err := s.tokenRepo.ValidateRefreshToken(ctx, userID, refreshToken)
 	if err != nil {
 		s.logger.Error("Error validating refresh token", "error", err)
 		return nil, fmt.Errorf("error validating refresh token: %w", err)
@@ -198,8 +195,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*T
 		return nil, ErrInvalidRefreshToken
 	}
 
-	// Parse the UUID from the string
-	userUUID, err := uuid.Parse(userIDStr)
+	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		s.logger.Error("Invalid UUID format in token", "error", err)
 		return nil, ErrInvalidRefreshToken
@@ -213,53 +209,36 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*T
 	}
 
 	// Delete the old refresh token
-	if err := s.tokenRepo.DeleteRefreshToken(ctx, userIDStr); err != nil {
+	if err := s.tokenRepo.DeleteRefreshToken(ctx, userID); err != nil {
 		s.logger.Error("Failed to delete old refresh token", "error", err)
 		// Continue despite this error
 	}
 
-	s.logger.Info("Tokens refreshed successfully", "userID", userIDStr)
+	s.logger.Info("Tokens refreshed successfully", "userID", userID)
 	return newTokens, nil
 }
 
-// generateTokens creates a pair of JWT tokens (access and refresh) for the user
 func (s *AuthService) generateTokens(userID uuid.UUID) (*TokenPair, error) {
-	// Store the UUID string in the custom claim
 	userIDStr := userID.String()
 
-	// For JWT standard claims we'll use a simple numeric ID (0 is fine for MVP)
-	userIDUint := uint(0)
-
-	// Determine user role (basic implementation for MVP)
-	role := jwt.RoleUser
-	var premiumUntil *int64 = nil // Can be enhanced for premium users
-
-	// Generate access token with the UUID string in a custom claim
 	accessToken, err := s.jwtManager.GenerateAccessToken(
-		userIDUint,
-		role,
+		userIDStr,
+		jwt.RoleUser,
 		true,
-		premiumUntil,
-		userIDStr, // Pass the UUID string to store in the token
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	// Generate refresh token with the same UUID string in a custom claim
-	refreshToken, err := s.jwtManager.GenerateRefreshToken(
-		userIDUint,
-		userIDStr, // Pass the UUID string to store in the token
-	)
+	refreshToken, err := s.jwtManager.GenerateRefreshToken(userIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	// Store refresh token in Redis using the UUID string as the key
-	// This ensures we can look it up correctly later
 	err = s.tokenRepo.StoreRefreshToken(
 		context.Background(),
-		userIDStr, // Use the actual UUID string as the key
+		userIDStr,
 		refreshToken,
 		s.refreshTokenTTL,
 	)
@@ -312,39 +291,24 @@ func (s *AuthService) AdminLogin(ctx context.Context, email, password string) (*
 	return tokens, nil
 }
 
-// Generate tokens specifically for admins
 func (s *AuthService) generateAdminTokens(adminID uuid.UUID) (*TokenPair, error) {
-	// Store the UUID string in the custom claim
 	adminIDStr := adminID.String()
 
-	// For JWT standard claims we'll use a simple numeric ID
-	userIDUint := uint(0)
-
-	// Use ADMIN role for admin users
-	role := jwt.RoleAdmin
-
-	// Generate access token with the UUID string in a custom claim
 	accessToken, err := s.jwtManager.GenerateAccessToken(
-		userIDUint,
-		role,
+		adminIDStr,
+		jwt.RoleAdmin,
 		true,
-		nil,        // No premium until for admins
-		adminIDStr, // Pass the UUID string to store in the token
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate admin access token: %w", err)
 	}
 
-	// Generate refresh token with the same UUID string in a custom claim
-	refreshToken, err := s.jwtManager.GenerateRefreshToken(
-		userIDUint,
-		adminIDStr,
-	)
+	refreshToken, err := s.jwtManager.GenerateRefreshToken(adminIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate admin refresh token: %w", err)
 	}
 
-	// Store refresh token in Redis using the UUID string as the key
 	err = s.tokenRepo.StoreRefreshToken(
 		context.Background(),
 		adminIDStr,

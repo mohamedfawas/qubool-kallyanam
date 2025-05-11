@@ -7,6 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const DefaultNotMentioned = "not_mentioned"
+
 // Enum type definitions matching PostgreSQL enums
 // Community defines the community_enum type
 type Community string
@@ -17,6 +19,7 @@ const (
 	CommunityTabligh      Community = "tabligh"
 	CommunityJamateIslami Community = "jamate_islami"
 	CommunityShia         Community = "shia"
+	CommunityMuslim       Community = "muslim"
 )
 
 // MaritalStatus defines the marital_status_enum type
@@ -44,10 +47,11 @@ const (
 type ProfessionType string
 
 const (
-	ProfessionFullTime     ProfessionType = "full_time"
-	ProfessionPartTime     ProfessionType = "part_time"
-	ProfessionFreelance    ProfessionType = "freelance"
-	ProfessionSelfEmployed ProfessionType = "self_employed"
+	ProfessionTypeFullTime     ProfessionType = "full_time"
+	ProfessionTypePartTime     ProfessionType = "part_time"
+	ProfessionTypeFreelance    ProfessionType = "freelance"
+	ProfessionTypeSelfEmployed ProfessionType = "self_employed"
+	ProfessionTypeNotWorking   ProfessionType = "not_working"
 )
 
 // EducationLevel defines the education_level_enum type
@@ -105,6 +109,7 @@ type UserProfile struct {
 	ProfessionType        ProfessionType `gorm:"type:profession_type_enum;column:profession_type"`
 	HighestEducationLevel EducationLevel `gorm:"type:education_level_enum;column:highest_education_level"`
 	HomeDistrict          HomeDistrict   `gorm:"type:home_district_enum;column:home_district"`
+	ProfilePictureURL     *string        `gorm:"size:255;column:profile_picture_url"`
 	LastLogin             time.Time      `gorm:"not null;default:now();column:last_login"`
 	CreatedAt             time.Time      `gorm:"not null;default:now();column:created_at"`
 	UpdatedAt             time.Time      `gorm:"not null;default:now();column:updated_at"`

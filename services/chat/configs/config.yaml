@@ -1,8 +1,0 @@
-grpc:
-  port: 50054
-
-database:
-  mongodb:
-    uri: mongodb://localhost:27017
-    database: qubool_kallyanam_chat
-    timeout_seconds: 10

@@ -12,6 +12,30 @@ type Config struct {
 	GRPC     GRPCConfig     `mapstructure:"grpc"`
 	Database DatabaseConfig `mapstructure:"database"`
 	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+	Storage  StorageConfig  `mapstructure:"storage"`
+}
+
+type StorageConfig struct {
+	S3 S3Config `mapstructure:"s3"`
+}
+
+type S3Config struct {
+	Endpoint        string `mapstructure:"endpoint"`
+	Region          string `mapstructure:"region"`
+	AccessKeyID     string `mapstructure:"access_key_id"`
+	SecretAccessKey string `mapstructure:"secret_access_key"`
+	BucketName      string `mapstructure:"bucket_name"`
+	UseSSL          bool   `mapstructure:"use_ssl"`
+}
+
+type AuthConfig struct {
+	JWT JWTConfig `mapstructure:"jwt"`
+}
+
+type JWTConfig struct {
+	SecretKey string `mapstructure:"secret_key"`
+	Issuer    string `mapstructure:"issuer"`
 }
 
 type RabbitMQConfig struct {
@@ -68,6 +92,30 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if host := os.Getenv("REDIS_HOST"); host != "" {
 		config.Database.Redis.Host = host
+	}
+
+	if jwtSecret := os.Getenv("JWT_SECRET"); jwtSecret != "" {
+		config.Auth.JWT.SecretKey = jwtSecret
+	}
+
+	// S3/MinIO environment variables
+	if endpoint := os.Getenv("S3_ENDPOINT"); endpoint != "" {
+		config.Storage.S3.Endpoint = endpoint
+	}
+	if region := os.Getenv("S3_REGION"); region != "" {
+		config.Storage.S3.Region = region
+	}
+	if accessKey := os.Getenv("S3_ACCESS_KEY"); accessKey != "" {
+		config.Storage.S3.AccessKeyID = accessKey
+	}
+	if secretKey := os.Getenv("S3_SECRET_KEY"); secretKey != "" {
+		config.Storage.S3.SecretAccessKey = secretKey
+	}
+	if bucketName := os.Getenv("S3_BUCKET_NAME"); bucketName != "" {
+		config.Storage.S3.BucketName = bucketName
+	}
+	if useSSL := os.Getenv("S3_USE_SSL"); useSSL == "true" {
+		config.Storage.S3.UseSSL = true
 	}
 
 	return &config, nil

@@ -12,13 +12,18 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	userpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/user/v1"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
+	s3config "github.com/mohamedfawas/qubool-kallyanam/pkg/cdn/s3"
 	pgdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
 	redisdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/redis"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/messaging/rabbitmq"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/adapters/postgres"
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/adapters/storage"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/services"
+	v1 "github.com/mohamedfawas/qubool-kallyanam/services/user/internal/handlers/grpc/v1"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/handlers/health"
 )
 
@@ -31,6 +36,9 @@ type Server struct {
 	redisClient    *redisdb.Client
 	rabbitClient   *rabbitmq.Client
 	profileService *services.ProfileService
+	photoService   *services.PhotoService
+	jwtManager     *jwt.Manager
+	photoStorage   storage.PhotoStorage
 }
 
 // NewServer creates a new gRPC server
@@ -68,6 +76,21 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create RabbitMQ client: %w", err)
 	}
 
+	// Initialize S3 storage - MOVED THIS BEFORE USING IT
+	s3Cfg := s3config.NewConfig(
+		cfg.Storage.S3.Endpoint,
+		cfg.Storage.S3.Region,
+		cfg.Storage.S3.AccessKeyID,
+		cfg.Storage.S3.SecretAccessKey,
+		cfg.Storage.S3.BucketName,
+		cfg.Storage.S3.UseSSL,
+	)
+
+	photoStorage, err := storage.NewS3PhotoStorage(s3Cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create photo storage: %w", err)
+	}
+
 	// Create gRPC server with options for better error handling
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
@@ -86,6 +109,20 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 	// Initialize service layer
 	profileService := services.NewProfileService(profileRepo, logger)
+	photoService := services.NewPhotoService(profileRepo, photoStorage, logger)
+
+	jwtManager := jwt.NewManager(jwt.Config{
+		SecretKey:       cfg.Auth.JWT.SecretKey,
+		AccessTokenTTL:  time.Duration(15) * time.Minute,
+		RefreshTokenTTL: time.Duration(7) * 24 * time.Hour,
+		Issuer:          cfg.Auth.JWT.Issuer,
+	})
+
+	// Create profile handler
+	profileHandler := v1.NewProfileHandler(profileService, photoService, jwtManager, logger)
+
+	// Register the profile handler
+	userpb.RegisterUserServiceServer(grpcServer, profileHandler)
 
 	// Create server instance
 	server := &Server{
@@ -96,12 +133,21 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		redisClient:    redisClient,
 		rabbitClient:   rabbitClient,
 		profileService: profileService,
+		photoService:   photoService,
+		jwtManager:     jwtManager,
+		photoStorage:   photoStorage,
 	}
 
 	// Subscribe to events
 	if err := server.subscribeToEvents(); err != nil {
 		server.Stop() // Clean up resources if subscription fails
 		return nil, fmt.Errorf("failed to subscribe to events: %w", err)
+	}
+
+	// Initialize S3 bucket
+	if err := server.initializeStorage(); err != nil {
+		server.Stop()
+		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
 	return server, nil
@@ -116,6 +162,18 @@ func (s *Server) subscribeToEvents() error {
 	}
 
 	s.logger.Info("Subscribed to user login events")
+	return nil
+}
+
+func (s *Server) initializeStorage() error {
+	s.logger.Info("Initializing storage...")
+	ctx := context.Background()
+
+	if err := s.photoStorage.EnsureBucketExists(ctx); err != nil {
+		return fmt.Errorf("failed to ensure bucket exists: %w", err)
+	}
+
+	s.logger.Info("Storage initialized successfully")
 	return nil
 }
 

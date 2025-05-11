@@ -13,25 +13,38 @@ import (
 
 // Client wraps the auth service client
 type Client struct {
-	conn   *grpc.ClientConn
-	client authpb.AuthServiceClient
+	conn   *grpc.ClientConn         // Connection to the auth service
+	client authpb.AuthServiceClient // AuthServiceClient generated from proto file
 }
 
-// NewClient creates a new auth service client
+// NewClient creates and returns a new gRPC client to communicate with the Auth service.
+// It establishes a connection to the gRPC server at the given address.
 func NewClient(address string) (*Client, error) {
-	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Step 1: Create a new gRPC client connection to the provided server address.
+	// The connection uses insecure credentials (no TLS), which is fine for development
+	// or trusted internal environments. In production, use proper TLS credentials.
+	clientConn, err := grpc.NewClient(address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()), // disables TLS encryption
+	)
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to auth service: %w", err)
+		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
+	// Step 3: Initialize and return the custom Client struct.
+	// - `conn` holds the low-level gRPC connection object.
+	// - `client` is the generated AuthServiceClient which provides methods
+	//   to call the remote RPC endpoints defined in the proto file.
 	return &Client{
-		conn:   conn,
-		client: authpb.NewAuthServiceClient(conn),
+		conn:   clientConn,
+		client: authpb.NewAuthServiceClient(clientConn),
 	}, nil
 }
 
 // Register sends a registration request to the auth service
-func (c *Client) Register(ctx context.Context, email, phone, password string) (bool, string, error) {
+func (c *Client) Register(ctx context.Context,
+	email, phone, password string) (bool, string, error) {
+
 	resp, err := c.client.Register(ctx, &authpb.RegisterRequest{
 		Email:    email,
 		Phone:    phone,

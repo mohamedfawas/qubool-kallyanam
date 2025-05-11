@@ -1,1 +1,48 @@
-// todo : implement user service proto
+syntax = "proto3";
+
+package user.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/proto/user/v1;userpb";
+
+service UserService {
+  // UpdateProfile updates user profile information
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+
+  // UploadProfilePhoto uploads a profile photo for a user
+  rpc UploadProfilePhoto(UploadProfilePhotoRequest) returns (UploadProfilePhotoResponse);
+}
+
+message UpdateProfileRequest {
+  bool is_bride = 1;
+  string full_name = 2;
+  google.protobuf.Timestamp date_of_birth = 3;
+  int32 height_cm = 4;
+  bool physically_challenged = 5;
+  string community = 6;
+  string marital_status = 7;
+  string profession = 8;
+  string profession_type = 9;
+  string highest_education_level = 10;
+  string home_district = 11;
+}
+
+message UpdateProfileResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+message UploadProfilePhotoRequest {
+  bytes photo_data = 1;
+  string file_name = 2;
+  string content_type = 3;
+}
+
+message UploadProfilePhotoResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  string photo_url = 4;
+}

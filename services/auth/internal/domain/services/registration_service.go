@@ -1,3 +1,4 @@
+// File: auth/internal/domain/services/registration_service.go
 package services
 
 import (
@@ -14,6 +15,11 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/validation"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/repositories"
+	"github.com/redis/go-redis/v9"
+)
+
+const (
+	otpPrefix = "otp:" // Define the OTP key prefix in the service layer
 )
 
 var (
@@ -29,8 +35,9 @@ var (
 // RegistrationService handles user registration logic
 type RegistrationService struct {
 	registrationRepo repositories.RegistrationRepository
+	otpRepo          repositories.OTPRepository
 	otpGenerator     *otp.Generator
-	otpStore         *otp.Store
+	otpExpiryTime    time.Duration
 	emailClient      *email.Client
 	logger           logging.Logger
 }
@@ -38,23 +45,75 @@ type RegistrationService struct {
 // NewRegistrationService creates a new registration service
 func NewRegistrationService(
 	repo repositories.RegistrationRepository,
+	otpRepo repositories.OTPRepository,
 	otpGenerator *otp.Generator,
-	otpStore *otp.Store,
+	otpExpiryTime time.Duration,
 	emailClient *email.Client,
 	logger logging.Logger,
 ) *RegistrationService {
 	return &RegistrationService{
 		registrationRepo: repo,
+		otpRepo:          otpRepo,
 		otpGenerator:     otpGenerator,
-		otpStore:         otpStore,
+		otpExpiryTime:    otpExpiryTime,
 		emailClient:      emailClient,
 		logger:           logger,
 	}
 }
 
+// getOTPKey formats the key for OTP storage with the proper prefix
+func (s *RegistrationService) getOTPKey(identifier string) string {
+	return otpPrefix + identifier
+}
+
+// storeOTP generates and stores an OTP for the given identifier
+func (s *RegistrationService) storeOTP(ctx context.Context, identifier string) (string, error) {
+	// Generate OTP
+	otp, err := s.otpGenerator.Generate()
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrOTPGenerationFailed, err)
+	}
+
+	// Store OTP with the service-defined key
+	key := s.getOTPKey(identifier)
+	if err := s.otpRepo.StoreOTP(ctx, key, otp, s.otpExpiryTime); err != nil {
+		return "", fmt.Errorf("failed to store OTP: %w", err)
+	}
+
+	return otp, nil
+}
+
+// validateOTP checks if an OTP is valid and deletes it if it is
+func (s *RegistrationService) validateOTP(ctx context.Context, identifier, inputOTP string) (bool, error) {
+	key := s.getOTPKey(identifier)
+
+	// Get the stored OTP
+	storedOTP, err := s.otpRepo.GetOTP(ctx, key)
+	if err != nil {
+		// Handle Redis Nil error specifically
+		if err == redis.Nil {
+			return false, ErrInvalidOTP
+		}
+		return false, fmt.Errorf("failed to retrieve OTP: %w", err)
+	}
+
+	// Compare OTPs
+	if storedOTP != inputOTP {
+		return false, nil
+	}
+
+	// Delete the OTP after successful validation
+	if err := s.otpRepo.DeleteOTP(ctx, key); err != nil {
+		// Log the error but don't fail the validation
+		s.logger.Error("Failed to delete OTP after validation", "key", key, "error", err)
+	}
+
+	return true, nil
+}
+
 // RegisterUser handles the registration process
 func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Registration) error {
-	// Validate input
+	// Validate input data
 	if !validation.ValidateEmail(reg.Email) {
 		return fmt.Errorf("%w: invalid email format", ErrInvalidInput)
 	}
@@ -134,15 +193,10 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 		return fmt.Errorf("%w: %v", ErrRegistrationFailed, err)
 	}
 
-	// Generate OTP
-	otp, err := s.otpGenerator.Generate()
+	// Generate and store OTP
+	otp, err := s.storeOTP(ctx, reg.Email)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrOTPGenerationFailed, err)
-	}
-
-	// Store OTP in Redis
-	if err := s.otpStore.StoreOTP(ctx, reg.Email, otp); err != nil {
-		return fmt.Errorf("failed to store OTP: %w", err)
+		return err
 	}
 
 	// Send OTP via email
@@ -173,8 +227,8 @@ func (s *RegistrationService) VerifyRegistration(ctx context.Context, email, otp
 		return fmt.Errorf("no pending registration found for email: %s", email)
 	}
 
-	// Verify OTP
-	valid, err := s.otpStore.ValidateOTP(ctx, email, otp)
+	// Verify OTP using our service method
+	valid, err := s.validateOTP(ctx, email, otp)
 	if err != nil {
 		s.logger.Error("OTP validation error", "email", email, "error", err)
 		return fmt.Errorf("OTP verification error: %w", err)

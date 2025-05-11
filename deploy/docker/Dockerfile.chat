@@ -4,7 +4,10 @@ WORKDIR /app
 
 ENV GOPROXY=https://goproxy.io,direct
 
-# Copy only necessary go.mod files
+# Install required packages (rarely changes)
+RUN apk add --no-cache git wget
+
+# Copy only necessary go.mod files first (rarely changes)
 COPY pkg/go.mod pkg/go.sum ./pkg/
 COPY services/chat/go.mod ./services/chat/
 
@@ -12,7 +15,7 @@ COPY services/chat/go.mod ./services/chat/
 WORKDIR /app/services/chat
 RUN go mod download -x
 
-# Copy source code
+# Now copy the source code (changes frequently)
 WORKDIR /app
 COPY pkg/ ./pkg/
 COPY services/chat/ ./services/chat/
