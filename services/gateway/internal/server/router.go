@@ -73,8 +73,14 @@ func registerUserRoutes(rg *gin.RouterGroup, h *userHandler.Handler, auth *middl
 		auth.ForwardToken(), // Forward token to downstream services
 	)
 	{
+		rg.GET("/profile", h.GetProfile)
 		rg.POST("/profile", h.UpdateProfile)
+		rg.PATCH("/profile", h.PatchProfile)
 		rg.POST("/profile/photo", h.UploadProfilePhoto)
+		rg.DELETE("/profile/photo", h.DeleteProfilePhoto)
+		rg.POST("/partner-preferences", h.UpdatePartnerPreferences)
+		rg.PATCH("/partner-preferences", h.PatchPartnerPreferences)
+		rg.GET("/partner-preferences", h.GetPartnerPreferences)
 	}
 }
 

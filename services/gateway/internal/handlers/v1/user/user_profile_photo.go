@@ -95,3 +95,28 @@ func (h *Handler) UploadProfilePhoto(c *gin.Context) {
 		"photo_url": photoURL,
 	})
 }
+
+func (h *Handler) DeleteProfilePhoto(c *gin.Context) {
+	userID, exists := c.Get(middleware.UserIDKey)
+	if !exists {
+		h.logger.Debug("Missing user ID in context")
+		pkghttp.Error(c, pkghttp.NewUnauthorized("Authentication required", nil))
+		return
+	}
+
+	// Call the user service with user ID from context
+	success, message, err := h.userClient.DeleteProfilePhoto(
+		c.Request.Context(),
+		userID.(string),
+	)
+
+	if err != nil {
+		h.logger.Error("Failed to delete profile photo", "error", err)
+		pkghttp.Error(c, pkghttp.FromGRPCError(err))
+		return
+	}
+
+	pkghttp.Success(c, http.StatusOK, message, gin.H{
+		"success": success,
+	})
+}

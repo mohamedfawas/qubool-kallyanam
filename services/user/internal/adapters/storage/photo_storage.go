@@ -22,6 +22,7 @@ import (
 // PhotoStorage defines the interface for photo storage operations
 type PhotoStorage interface {
 	UploadProfilePhoto(ctx context.Context, userID uuid.UUID, header *multipart.FileHeader, file io.Reader) (string, error)
+	DeleteProfilePhoto(ctx context.Context, userID uuid.UUID) error
 	EnsureBucketExists(ctx context.Context) error
 }
 
@@ -135,6 +136,46 @@ func (s *S3PhotoStorage) UploadProfilePhoto(ctx context.Context, userID uuid.UUI
 	photoURL := s.baseURL + key
 	s.logger.Info("Successfully uploaded profile photo", "userID", userID.String(), "url", photoURL)
 	return photoURL, nil
+}
+
+func (s *S3PhotoStorage) DeleteProfilePhoto(ctx context.Context, userID uuid.UUID) error {
+	s.logger.Info("Deleting profile photo", "userID", userID.String())
+
+	// List objects in the user's directory to find the profile photo
+	prefix := fmt.Sprintf("user-profiles/%s/", userID.String())
+	listOutput, err := s.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucketName),
+		Prefix: aws.String(prefix),
+	})
+
+	if err != nil {
+		s.logger.Error("Failed to list objects in S3", "error", err, "userID", userID.String())
+		return fmt.Errorf("failed to list objects in S3: %w", err)
+	}
+
+	// If no objects found, return success (nothing to delete)
+	if len(listOutput.Contents) == 0 {
+		s.logger.Info("No profile photo found to delete", "userID", userID.String())
+		return nil
+	}
+
+	// Delete each object found in the user's directory
+	for _, obj := range listOutput.Contents {
+		_, err = s.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket: aws.String(s.bucketName),
+			Key:    obj.Key,
+		})
+
+		if err != nil {
+			s.logger.Error("Failed to delete object from S3", "error", err, "userID", userID.String(), "key", *obj.Key)
+			return fmt.Errorf("failed to delete object from S3: %w", err)
+		}
+
+		s.logger.Info("Successfully deleted object", "userID", userID.String(), "key", *obj.Key)
+	}
+
+	s.logger.Info("Successfully deleted profile photo", "userID", userID.String())
+	return nil
 }
 
 // EnsureBucketExists checks if the bucket exists and creates it if it doesn't

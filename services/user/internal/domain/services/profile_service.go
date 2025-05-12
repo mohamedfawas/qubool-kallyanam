@@ -174,3 +174,153 @@ func (s *ProfileService) validateProfileFields(heightCM *int, community string, 
 
 	return nil
 }
+
+func (s *ProfileService) PatchProfile(ctx context.Context, userID string,
+	isBride *bool, fullName *string, dateOfBirth *time.Time, heightCM *int,
+	physicallyChallenged *bool, community *string, maritalStatus *string,
+	profession *string, professionType *string, educationLevel *string,
+	homeDistrict *string, clearDateOfBirth bool, clearHeightCM bool) error {
+
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+	}
+
+	exists, err := s.profileRepo.ProfileExists(ctx, userUUID)
+	if err != nil {
+		return fmt.Errorf("error checking profile existence: %w", err)
+	}
+	if !exists {
+		return ErrProfileNotFound
+	}
+
+	// Validate the fields that are being updated
+	if heightCM != nil {
+		if err := validation.ValidateHeight(heightCM); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	if community != nil {
+		if err := validation.ValidateCommunity(*community); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	if maritalStatus != nil {
+		if err := validation.ValidateMaritalStatus(*maritalStatus); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	if profession != nil {
+		if err := validation.ValidateProfession(*profession); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	if professionType != nil {
+		if err := validation.ValidateProfessionType(*professionType); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	if educationLevel != nil {
+		if err := validation.ValidateEducationLevel(*educationLevel); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	if homeDistrict != nil {
+		if err := validation.ValidateHomeDistrict(*homeDistrict); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	if dateOfBirth != nil {
+		if err := validation.ValidateDateOfBirth(dateOfBirth); err != nil {
+			return fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
+
+	// Build updates map
+	updates := make(map[string]interface{})
+
+	if isBride != nil {
+		updates["is_bride"] = *isBride
+	}
+
+	if fullName != nil {
+		updates["full_name"] = *fullName
+	}
+
+	if dateOfBirth != nil {
+		updates["date_of_birth"] = *dateOfBirth
+	} else if clearDateOfBirth {
+		updates["date_of_birth"] = nil
+	}
+
+	if heightCM != nil {
+		updates["height_cm"] = *heightCM
+	} else if clearHeightCM {
+		updates["height_cm"] = nil
+	}
+
+	if physicallyChallenged != nil {
+		updates["physically_challenged"] = *physicallyChallenged
+	}
+
+	if community != nil {
+		updates["community"] = *community
+	}
+
+	if maritalStatus != nil {
+		updates["marital_status"] = *maritalStatus
+	}
+
+	if profession != nil {
+		updates["profession"] = *profession
+	}
+
+	if professionType != nil {
+		updates["profession_type"] = *professionType
+	}
+
+	if educationLevel != nil {
+		updates["highest_education_level"] = *educationLevel
+	}
+
+	if homeDistrict != nil {
+		updates["home_district"] = *homeDistrict
+	}
+
+	// If no updates, return success
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if err := s.profileRepo.PatchProfile(ctx, userUUID, updates); err != nil {
+		return fmt.Errorf("failed to patch profile: %w", err)
+	}
+
+	s.logger.Info("Profile patched successfully", "userID", userID, "updatedFields", len(updates))
+	return nil
+}
+
+func (s *ProfileService) GetProfile(ctx context.Context, userID string) (*models.UserProfile, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+	}
+
+	profile, err := s.profileRepo.GetProfileByUserID(ctx, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving profile: %w", err)
+	}
+
+	if profile == nil {
+		return nil, ErrProfileNotFound
+	}
+
+	return profile, nil
+}

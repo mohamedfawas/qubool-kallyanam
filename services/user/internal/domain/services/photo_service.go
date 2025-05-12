@@ -15,6 +15,7 @@ import (
 
 var (
 	ErrPhotoUploadFailed = errors.New("failed to upload photo")
+	ErrPhotoDeleteFailed = errors.New("failed to delete photo")
 )
 
 // PhotoService handles photo management operations
@@ -68,4 +69,47 @@ func (s *PhotoService) UploadProfilePhoto(ctx context.Context, userID string, he
 
 	s.logger.Info("Profile photo updated successfully", "userID", userID, "photoURL", photoURL)
 	return photoURL, nil
+}
+
+func (s *PhotoService) DeleteProfilePhoto(ctx context.Context, userID string) error {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+	}
+
+	// Check if profile exists
+	exists, err := s.profileRepo.ProfileExists(ctx, userUUID)
+	if err != nil {
+		return fmt.Errorf("error checking profile existence: %w", err)
+	}
+	if !exists {
+		return ErrProfileNotFound
+	}
+
+	// Get profile to check if it has a photo
+	profile, err := s.profileRepo.GetProfileByUserID(ctx, userUUID)
+	if err != nil {
+		return fmt.Errorf("error retrieving profile: %w", err)
+	}
+
+	// If profile doesn't have a photo, return early as nothing to delete
+	if profile.ProfilePictureURL == nil || *profile.ProfilePictureURL == "" {
+		s.logger.Info("No profile photo to delete", "userID", userID)
+		return nil
+	}
+
+	// Delete photo from storage
+	if err := s.photoStorage.DeleteProfilePhoto(ctx, userUUID); err != nil {
+		s.logger.Error("Failed to delete profile photo from storage", "error", err, "userID", userID)
+		return fmt.Errorf("%w: %v", ErrPhotoDeleteFailed, err)
+	}
+
+	// Update profile in database to remove photo URL
+	if err := s.profileRepo.RemoveProfilePhoto(ctx, userUUID); err != nil {
+		s.logger.Error("Failed to remove profile photo URL", "error", err, "userID", userID)
+		return fmt.Errorf("failed to remove profile photo URL: %w", err)
+	}
+
+	s.logger.Info("Profile photo deleted successfully", "userID", userID)
+	return nil
 }

@@ -1,4 +1,3 @@
-// gateway/internal/handlers/v1/user/user_profile.go
 package user
 
 import (

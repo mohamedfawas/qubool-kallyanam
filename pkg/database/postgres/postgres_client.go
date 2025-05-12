@@ -84,8 +84,3 @@ func (c *Client) Close() error {
 	// Close the connection to release resources
 	return sqlDB.Close()
 }
-
-// // Migrate automatically migrates the schema for the provided models.
-// func (c *Client) Migrate(models ...interface{}) error {
-// 	return c.DB.AutoMigrate(models...)
-// }

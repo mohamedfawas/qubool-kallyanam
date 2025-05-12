@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -20,6 +21,7 @@ const (
 	CommunityJamateIslami Community = "jamate_islami"
 	CommunityShia         Community = "shia"
 	CommunityMuslim       Community = "muslim"
+	CommunityNotMentioned Community = DefaultNotMentioned
 )
 
 // MaritalStatus defines the marital_status_enum type
@@ -30,17 +32,19 @@ const (
 	MaritalDivorced      MaritalStatus = "divorced"
 	MaritalNikkahDivorce MaritalStatus = "nikkah_divorce"
 	MaritalWidowed       MaritalStatus = "widowed"
+	MaritalNotMentioned  MaritalStatus = DefaultNotMentioned
 )
 
 // Profession defines the profession_enum type
 type Profession string
 
 const (
-	ProfessionStudent  Profession = "student"
-	ProfessionDoctor   Profession = "doctor"
-	ProfessionEngineer Profession = "engineer"
-	ProfessionFarmer   Profession = "farmer"
-	ProfessionTeacher  Profession = "teacher"
+	ProfessionStudent      Profession = "student"
+	ProfessionDoctor       Profession = "doctor"
+	ProfessionEngineer     Profession = "engineer"
+	ProfessionFarmer       Profession = "farmer"
+	ProfessionTeacher      Profession = "teacher"
+	ProfessionNotMentioned Profession = DefaultNotMentioned
 )
 
 // ProfessionType defines the profession_type_enum type
@@ -52,6 +56,7 @@ const (
 	ProfessionTypeFreelance    ProfessionType = "freelance"
 	ProfessionTypeSelfEmployed ProfessionType = "self_employed"
 	ProfessionTypeNotWorking   ProfessionType = "not_working"
+	ProfessionTypeNotMentioned ProfessionType = DefaultNotMentioned
 )
 
 // EducationLevel defines the education_level_enum type
@@ -63,6 +68,7 @@ const (
 	EducationHigherSecondary    EducationLevel = "higher_secondary"
 	EducationUnderGraduation    EducationLevel = "under_graduation"
 	EducationPostGraduation     EducationLevel = "post_graduation"
+	EducationNotMentioned       EducationLevel = DefaultNotMentioned
 )
 
 // HomeDistrict defines the home_district_enum type
@@ -83,6 +89,7 @@ const (
 	DistrictKannur             HomeDistrict = "kannur"
 	DistrictKasaragod          HomeDistrict = "kasaragod"
 	DistrictIdukki             HomeDistrict = "idukki"
+	DistrictNotMentioned       HomeDistrict = DefaultNotMentioned
 )
 
 // UserProfile represents the user_profiles table in PostgreSQL
@@ -113,5 +120,97 @@ type UserProfile struct {
 	LastLogin             time.Time      `gorm:"not null;default:now();column:last_login"`
 	CreatedAt             time.Time      `gorm:"not null;default:now();column:created_at"`
 	UpdatedAt             time.Time      `gorm:"not null;default:now();column:updated_at"`
+	IsDeleted             bool           `gorm:"not null;default:false;column:is_deleted"`
 	DeletedAt             gorm.DeletedAt `gorm:"index;column:deleted_at"`
+}
+
+type PartnerPreferences struct {
+	ID            uint `gorm:"primaryKey;autoIncrement;column:id"`
+	UserProfileID uint `gorm:"not null;index:idx_partner_preferences_user_profile_id;column:user_profile_id"`
+
+	MinAgeYears *int `gorm:"column:min_age_years;check:min_age_years>=18 AND min_age_years<=80"`
+	MaxAgeYears *int `gorm:"column:max_age_years;check:max_age_years>=18 AND max_age_years<=80"`
+
+	MinHeightCM *int `gorm:"column:min_height_cm;check:min_height_cm>=130 AND min_height_cm<=220"`
+	MaxHeightCM *int `gorm:"column:max_height_cm;check:max_height_cm>=130 AND max_height_cm<=220"`
+
+	AcceptPhysicallyChallenged bool `gorm:"not null;default:true;column:accept_physically_challenged"`
+
+	PreferredCommunities     []Community      `gorm:"type:community_enum[];column:preferred_communities"`
+	PreferredMaritalStatus   []MaritalStatus  `gorm:"type:marital_status_enum[];column:preferred_marital_status"`
+	PreferredProfessions     []Profession     `gorm:"type:profession_enum[];column:preferred_professions"`
+	PreferredProfessionTypes []ProfessionType `gorm:"type:profession_type_enum[];column:preferred_profession_types"`
+	PreferredEducationLevels []EducationLevel `gorm:"type:education_level_enum[];column:preferred_education_levels"`
+	PreferredHomeDistricts   []HomeDistrict   `gorm:"type:home_district_enum[];column:preferred_home_districts"`
+
+	CreatedAt time.Time      `gorm:"not null;default:now();column:created_at"`
+	UpdatedAt time.Time      `gorm:"not null;default:now();column:updated_at"`
+	IsDeleted bool           `gorm:"not null;default:false;column:is_deleted"`
+	DeletedAt gorm.DeletedAt `gorm:"index;column:deleted_at"`
+}
+
+// PartnerPreferencesWithArrays is used for properly handling PostgreSQL arrays in GORM
+type PartnerPreferencesWithArrays struct {
+	ID                            uint             `gorm:"primaryKey;autoIncrement;column:id"`
+	UserProfileID                 uint             `gorm:"not null;index:idx_partner_preferences_user_profile_id;column:user_profile_id"`
+	MinAgeYears                   *int             `gorm:"column:min_age_years;check:min_age_years>=18 AND min_age_years<=80"`
+	MaxAgeYears                   *int             `gorm:"column:max_age_years;check:max_age_years>=18 AND max_age_years<=80"`
+	MinHeightCM                   *int             `gorm:"column:min_height_cm;check:min_height_cm>=130 AND min_height_cm<=220"`
+	MaxHeightCM                   *int             `gorm:"column:max_height_cm;check:max_height_cm>=130 AND max_height_cm<=220"`
+	AcceptPhysicallyChallenged    bool             `gorm:"not null;default:true;column:accept_physically_challenged"`
+	PreferredCommunities          []Community      `gorm:"-"`
+	PreferredMaritalStatus        []MaritalStatus  `gorm:"-"`
+	PreferredProfessions          []Profession     `gorm:"-"`
+	PreferredProfessionTypes      []ProfessionType `gorm:"-"`
+	PreferredEducationLevels      []EducationLevel `gorm:"-"`
+	PreferredHomeDistricts        []HomeDistrict   `gorm:"-"`
+	PreferredCommunitiesArray     pq.StringArray   `gorm:"type:community_enum[];column:preferred_communities"`
+	PreferredMaritalStatusArray   pq.StringArray   `gorm:"type:marital_status_enum[];column:preferred_marital_status"`
+	PreferredProfessionsArray     pq.StringArray   `gorm:"type:profession_enum[];column:preferred_professions"`
+	PreferredProfessionTypesArray pq.StringArray   `gorm:"type:profession_type_enum[];column:preferred_profession_types"`
+	PreferredEducationLevelsArray pq.StringArray   `gorm:"type:education_level_enum[];column:preferred_education_levels"`
+	PreferredHomeDistrictsArray   pq.StringArray   `gorm:"type:home_district_enum[];column:preferred_home_districts"`
+	CreatedAt                     time.Time        `gorm:"not null;default:now();column:created_at"`
+	UpdatedAt                     time.Time        `gorm:"not null;default:now();column:updated_at"`
+	IsDeleted                     bool             `gorm:"not null;default:false;column:is_deleted"`
+	DeletedAt                     gorm.DeletedAt   `gorm:"index;column:deleted_at"`
+}
+
+func (PartnerPreferencesWithArrays) TableName() string {
+	return "partner_preferences"
+}
+
+func (p *PartnerPreferencesWithArrays) BeforeCreate(*gorm.DB) error {
+	// Convert the typed arrays to string arrays for pq
+	p.PreferredCommunitiesArray = make(pq.StringArray, len(p.PreferredCommunities))
+	for i, v := range p.PreferredCommunities {
+		p.PreferredCommunitiesArray[i] = string(v)
+	}
+
+	p.PreferredMaritalStatusArray = make(pq.StringArray, len(p.PreferredMaritalStatus))
+	for i, v := range p.PreferredMaritalStatus {
+		p.PreferredMaritalStatusArray[i] = string(v)
+	}
+
+	p.PreferredProfessionsArray = make(pq.StringArray, len(p.PreferredProfessions))
+	for i, v := range p.PreferredProfessions {
+		p.PreferredProfessionsArray[i] = string(v)
+	}
+
+	p.PreferredProfessionTypesArray = make(pq.StringArray, len(p.PreferredProfessionTypes))
+	for i, v := range p.PreferredProfessionTypes {
+		p.PreferredProfessionTypesArray[i] = string(v)
+	}
+
+	p.PreferredEducationLevelsArray = make(pq.StringArray, len(p.PreferredEducationLevels))
+	for i, v := range p.PreferredEducationLevels {
+		p.PreferredEducationLevelsArray[i] = string(v)
+	}
+
+	p.PreferredHomeDistrictsArray = make(pq.StringArray, len(p.PreferredHomeDistricts))
+	for i, v := range p.PreferredHomeDistricts {
+		p.PreferredHomeDistrictsArray[i] = string(v)
+	}
+
+	return nil
 }
