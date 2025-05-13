@@ -28,4 +28,7 @@ type RegistrationRepository interface {
 
 	// UpdateLastLogin updates the last login timestamp for a user
 	UpdateLastLogin(ctx context.Context, userID string) error
+
+	// SoftDeleteUser soft deletes a user account
+	SoftDeleteUser(ctx context.Context, userID string) error
 }

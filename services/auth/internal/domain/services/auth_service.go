@@ -17,6 +17,7 @@ import (
 
 // Define authentication-related errors
 var (
+	ErrUserNotFound         = errors.New("user not found")
 	ErrInvalidCredentials   = errors.New("invalid email or password")
 	ErrAccountNotVerified   = errors.New("account is not verified")
 	ErrAccountDisabled      = errors.New("account is disabled")
@@ -145,11 +146,23 @@ func (s *AuthService) Logout(ctx context.Context, accessToken string) error {
 		return ErrInvalidToken
 	}
 
-	// Get expiration time from token
-	expiryTime := time.Until(time.Unix(claims.ExpiresAt.Time.Unix(), 0))
-
 	// Get token ID from JWT claims (jti claim)
 	tokenID := claims.ID
+
+	// Check if token is already blacklisted
+	isBlacklisted, err := s.tokenRepo.IsTokenBlacklisted(ctx, tokenID)
+	if err != nil {
+		s.logger.Error("Failed to check token blacklist status", "error", err)
+		return fmt.Errorf("failed to check token blacklist status: %w", err)
+	}
+
+	if isBlacklisted {
+		s.logger.Debug("Logout failed - token already blacklisted")
+		return ErrInvalidToken
+	}
+
+	// Get expiration time from token
+	expiryTime := time.Until(time.Unix(claims.ExpiresAt.Time.Unix(), 0))
 
 	// Add token to blacklist
 	err = s.tokenRepo.BlacklistToken(ctx, tokenID, expiryTime)
@@ -324,4 +337,50 @@ func (s *AuthService) generateAdminTokens(adminID uuid.UUID) (*TokenPair, error)
 		RefreshToken: refreshToken,
 		ExpiresIn:    int32(s.accessTokenTTL.Seconds()),
 	}, nil
+}
+
+func (s *AuthService) Delete(ctx context.Context, userID string, password string) error {
+	user, err := s.registrationRepo.GetUser(ctx, "id", userID)
+	if err != nil {
+		s.logger.Error("Failed to retrieve user", "userID", userID, "error", err)
+		return fmt.Errorf("error retrieving user: %w", err)
+	}
+
+	if user == nil {
+		s.logger.Debug("User not found", "userID", userID)
+		return ErrUserNotFound
+	}
+
+	if !encryption.VerifyPassword(user.PasswordHash, password) {
+		s.logger.Debug("Invalid password for account deletion", "userID", userID)
+		return ErrInvalidCredentials
+	}
+
+	err = s.registrationRepo.SoftDeleteUser(ctx, userID)
+	if err != nil {
+		s.logger.Error("Failed to soft delete user", "userID", userID, "error", err)
+		return fmt.Errorf("failed to delete user account: %w", err)
+	}
+
+	// Remove refresh token
+	if err := s.tokenRepo.DeleteRefreshToken(ctx, userID); err != nil {
+		s.logger.Error("Failed to delete refresh token", "userID", userID, "error", err)
+	}
+
+	// Publish account deletion event
+	if s.messageBroker != nil {
+		deleteEvent := map[string]interface{}{
+			"user_id":    userID,
+			"event_type": "user.deleted",
+			"timestamp":  time.Now(),
+		}
+		if err := s.messageBroker.Publish("user.deleted", deleteEvent); err != nil {
+			s.logger.Error("Failed to publish account deletion event", "userID", userID, "error", err)
+		} else {
+			s.logger.Info("Account deletion event published", "userID", userID)
+		}
+	}
+
+	s.logger.Info("User account soft deleted successfully", "userID", userID)
+	return nil
 }

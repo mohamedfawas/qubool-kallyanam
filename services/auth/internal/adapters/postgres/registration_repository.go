@@ -51,16 +51,18 @@ func (r *RegistrationRepo) DeletePendingRegistration(ctx context.Context, id int
 }
 
 // IsRegistered checks if a field (email or phone) is already registered in users table
-func (r *RegistrationRepo) IsRegistered(ctx context.Context, field string, value string) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Table("users").Where(field+" = ?", value).Count(&count).Error
-	return count > 0, err
+func (r *RegistrationRepo) IsRegistered(ctx context.Context, field, value string) (bool, error) {
+	user, err := r.GetUser(ctx, field, value)
+	if err != nil {
+		return false, err
+	}
+	return user != nil, nil
 }
 
-// GetUser retrieves a user by the specified field (email or phone)
+// GetUser retrieves a user by the specified field (email or phone) , avoids soft deleted users
 func (r *RegistrationRepo) GetUser(ctx context.Context, field string, value string) (*models.User, error) {
 	var user models.User
-	result := r.db.WithContext(ctx).Where(field+" = ?", value).First(&user)
+	result := r.db.WithContext(ctx).Where(field+" = ?", value).Where("is_active = ?", true).First(&user)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -88,5 +90,21 @@ func (r *RegistrationRepo) UpdateLastLogin(ctx context.Context, userID string) e
 		Updates(map[string]interface{}{
 			"last_login_at": now,
 			"updated_at":    now,
+		}).Error
+}
+
+func (r *RegistrationRepo) SoftDeleteUser(ctx context.Context, userID string) error {
+	id, err := uuid.Parse(userID)
+	if err != nil {
+		return err
+	}
+
+	now := indianstandardtime.Now()
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"is_active":  false,
+			"updated_at": now,
+			"deleted_at": now,
 		}).Error
 }

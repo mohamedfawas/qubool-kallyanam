@@ -48,6 +48,7 @@ func registerAuthRoutes(rg *gin.RouterGroup, h *authHandler.Handler, auth *middl
 	{
 		protected.POST("/logout", h.Logout)
 		protected.POST("/refresh", h.RefreshToken)
+		protected.DELETE("/delete", h.DeleteAccount)
 	}
 
 	// Admin-specific routes

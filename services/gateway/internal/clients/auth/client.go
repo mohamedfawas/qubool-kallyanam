@@ -127,6 +127,25 @@ func (c *Client) AdminLogin(ctx context.Context, email, password string) (bool, 
 	return resp.Success, resp.AccessToken, resp.RefreshToken, resp.Message, resp.ExpiresIn, nil
 }
 
+func (c *Client) Delete(ctx context.Context, password string) (bool, string, error) {
+	// Extract the userID from the context, if it exists
+	var md metadata.MD
+	if userID, ok := ctx.Value("user-id").(string); ok {
+		md = metadata.New(map[string]string{
+			"user-id": userID,
+		})
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
+	resp, err := c.client.Delete(ctx, &authpb.DeleteRequest{
+		Password: password,
+	})
+	if err != nil {
+		return false, "", err
+	}
+	return resp.Success, resp.Message, nil
+}
+
 // Close closes the client connection
 func (c *Client) Close() error {
 	return c.conn.Close()

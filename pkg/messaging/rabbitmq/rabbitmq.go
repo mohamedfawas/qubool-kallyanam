@@ -1,4 +1,3 @@
-// pkg/messaging/rabbitmq/rabbitmq.go
 package rabbitmq
 
 import (

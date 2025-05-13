@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v5.29.3
-// source: api/proto/auth/v1/auth.proto
+// source: auth/v1/auth.proto
 
 package authpb
 
@@ -25,6 +25,7 @@ const (
 	AuthService_Logout_FullMethodName       = "/auth.v1.AuthService/Logout"
 	AuthService_RefreshToken_FullMethodName = "/auth.v1.AuthService/RefreshToken"
 	AuthService_AdminLogin_FullMethodName   = "/auth.v1.AuthService/AdminLogin"
+	AuthService_Delete_FullMethodName       = "/auth.v1.AuthService/Delete"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -43,6 +44,8 @@ type AuthServiceClient interface {
 	RefreshToken(ctx context.Context, in *RefreshTokenRequest, opts ...grpc.CallOption) (*RefreshTokenResponse, error)
 	// AdminLogin authenticates an admin user and returns JWT tokens
 	AdminLogin(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	// Delete soft deletes a user account
+	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 }
 
 type authServiceClient struct {
@@ -113,6 +116,16 @@ func (c *authServiceClient) AdminLogin(ctx context.Context, in *LoginRequest, op
 	return out, nil
 }
 
+func (c *authServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteResponse)
+	err := c.cc.Invoke(ctx, AuthService_Delete_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -129,6 +142,8 @@ type AuthServiceServer interface {
 	RefreshToken(context.Context, *RefreshTokenRequest) (*RefreshTokenResponse, error)
 	// AdminLogin authenticates an admin user and returns JWT tokens
 	AdminLogin(context.Context, *LoginRequest) (*LoginResponse, error)
+	// Delete soft deletes a user account
+	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -156,6 +171,9 @@ func (UnimplementedAuthServiceServer) RefreshToken(context.Context, *RefreshToke
 }
 func (UnimplementedAuthServiceServer) AdminLogin(context.Context, *LoginRequest) (*LoginResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AdminLogin not implemented")
+}
+func (UnimplementedAuthServiceServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -286,6 +304,24 @@ func _AuthService_AdminLogin_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).Delete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_Delete_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).Delete(ctx, req.(*DeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -317,7 +353,11 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "AdminLogin",
 			Handler:    _AuthService_AdminLogin_Handler,
 		},
+		{
+			MethodName: "Delete",
+			Handler:    _AuthService_Delete_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/proto/auth/v1/auth.proto",
+	Metadata: "auth/v1/auth.proto",
 }

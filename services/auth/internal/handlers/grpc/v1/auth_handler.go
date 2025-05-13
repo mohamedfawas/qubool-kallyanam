@@ -271,3 +271,48 @@ func (h *AuthHandler) AdminLogin(ctx context.Context, req *authpb.LoginRequest) 
 		Message:      "Admin login successful",
 	}, nil
 }
+
+func (h *AuthHandler) Delete(ctx context.Context, req *authpb.DeleteRequest) (*authpb.DeleteResponse, error) {
+	h.logger.Info("Received delete account request")
+
+	// Get the user ID from the context
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		h.logger.Debug("Metadata missing from context")
+		return nil, status.Error(codes.Unauthenticated, "Missing authorization")
+	}
+
+	userIDs := md.Get("user-id")
+	if len(userIDs) == 0 {
+		h.logger.Debug("User ID missing from metadata")
+		return nil, status.Error(codes.Unauthenticated, "Authentication required")
+	}
+
+	userID := userIDs[0]
+
+	if req.Password == "" {
+		h.logger.Debug("Invalid delete request - missing password")
+		return nil, status.Error(codes.InvalidArgument, "Password is required")
+	}
+
+	err := h.authService.Delete(ctx, userID, req.Password)
+	if err != nil {
+		switch {
+		case err == services.ErrInvalidCredentials:
+			h.logger.Debug("Delete failed - invalid password", "userID", userID)
+			return nil, status.Error(codes.PermissionDenied, "Invalid password")
+		case err == services.ErrUserNotFound:
+			h.logger.Debug("Delete failed - user not found", "userID", userID)
+			return nil, status.Error(codes.NotFound, "User not found")
+		default:
+			h.logger.Error("Delete failed - internal error", "userID", userID, "error", err)
+			return nil, status.Error(codes.Internal, "Failed to delete account")
+		}
+	}
+
+	h.logger.Info("User account deleted successfully", "userID", userID)
+	return &authpb.DeleteResponse{
+		Success: true,
+		Message: "Account deleted successfully",
+	}, nil
+}

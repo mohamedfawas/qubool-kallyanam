@@ -29,9 +29,28 @@ var (
 const MaxFileSize = 5 * 1024 * 1024
 
 // AllowedFileTypes is a list of allowed image file extensions
-var AllowedFileTypes = []string{".jpg", ".jpeg", ".png", ".gif", ".webp"}
+var AllowedFileTypes = []string{".jpg", ".jpeg", ".png"}
+
+// isValidFileType checks extension against AllowedFileTypes
+func isValidFileType(ext string) bool {
+	for _, allowedType := range AllowedFileTypes {
+		if allowedType == ext {
+			return true
+		}
+	}
+	return false
+}
 
 // Service provides image operations using S3/MinIO
+// ============================================================================
+// SERVICE STRUCT AND INITIALIZATION
+// ============================================================================
+
+// Service wraps the AWS S3 client and bucket settings for image operations.
+// client        - AWS S3 client used to make API calls.
+// bucketName    - The S3 bucket where files are stored.
+// expiry        - How long presigned URLs are valid.
+// baseURLPrefix - Base URL for direct public links (if bucket is public).
 type Service struct {
 	client        *s3.Client
 	bucketName    string
@@ -39,9 +58,10 @@ type Service struct {
 	baseURLPrefix string
 }
 
-// NewService creates a new S3/MinIO service with the given configuration
+// NewService initializes the Service using the provided Config.
+// It handles both AWS S3 and MinIO (an S3-compatible server).
 func NewService(cfg *Config) (*Service, error) {
-	// Create custom resolver to handle MinIO
+	// Custom resolver ensures requests go to cfg.Endpoint (e.g. MinIO)
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
 			URL:               cfg.Endpoint,
@@ -50,7 +70,7 @@ func NewService(cfg *Config) (*Service, error) {
 		}, nil
 	})
 
-	// Create AWS config
+	// Load AWS SDK config with region, endpoint override, and credentials
 	awsCfg, err := config.LoadDefaultConfig(context.Background(),
 		config.WithRegion(cfg.Region),
 		config.WithEndpointResolverWithOptions(customResolver),
@@ -64,16 +84,17 @@ func NewService(cfg *Config) (*Service, error) {
 		return nil, fmt.Errorf("unable to load SDK config: %w", err)
 	}
 
-	// Create S3 client
+	// Create the S3 client; path style is needed for MinIO
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.UsePathStyle = true // MinIO requires path-style URLs
 	})
 
-	// Build base URL prefix for direct URLs
+	// Determine URL scheme (http vs https)
 	scheme := "http"
 	if cfg.UseSSL {
 		scheme = "https"
 	}
+	// baseURLPrefix is like "https://play.min.io/mybucket/"
 	baseURLPrefix := fmt.Sprintf("%s://%s/%s/", scheme, strings.TrimPrefix(cfg.Endpoint, scheme+"://"), cfg.BucketName)
 
 	return &Service{
@@ -84,7 +105,17 @@ func NewService(cfg *Config) (*Service, error) {
 	}, nil
 }
 
-// UploadResponse represents the result of an image upload
+// ============================================================================
+// UPLOAD RESPONSE MODEL
+// ============================================================================
+
+// UploadResponse is returned after a successful upload.
+// Fields:
+//
+//	Key         - object key (path) in the bucket, e.g. "user-profiles/123/profile.png"
+//	URL         - public URL to access the file (if bucket is public)
+//	ContentType - MIME type, e.g. "image/png"
+//	Size        - size of the file in bytes
 type UploadResponse struct {
 	Key         string
 	URL         string
@@ -92,51 +123,53 @@ type UploadResponse struct {
 	Size        int64
 }
 
-// UploadProfilePhoto uploads a profile photo for a user
+// UploadProfilePhoto stores a user's profile image in "user-profiles/{userID}/profile{.ext}".
 func (s *Service) UploadProfilePhoto(ctx context.Context, userID string, file *multipart.FileHeader) (*UploadResponse, error) {
 	key := fmt.Sprintf("user-profiles/%s/profile%s", userID, filepath.Ext(file.Filename))
 	return s.uploadPhoto(ctx, userID, file, key)
 }
 
 // UploadUserPhoto uploads a regular photo for a user with a slot number
-func (s *Service) UploadUserPhoto(ctx context.Context, userID string, file *multipart.FileHeader, slot int) (*UploadResponse, error) {
-	key := fmt.Sprintf("user-photos/%s/photo_%d%s", userID, slot, filepath.Ext(file.Filename))
-	return s.uploadPhoto(ctx, userID, file, key)
-}
+// func (s *Service) UploadUserPhoto(ctx context.Context, userID string, file *multipart.FileHeader, slot int) (*UploadResponse, error) {
+// 	key := fmt.Sprintf("user-photos/%s/photo_%d%s", userID, slot, filepath.Ext(file.Filename))
+// 	return s.uploadPhoto(ctx, userID, file, key)
+// }
 
-// uploadPhoto handles the actual upload process
+// uploadPhoto performs validation and uploads the file to S3/MinIO.
 func (s *Service) uploadPhoto(ctx context.Context, userID string, file *multipart.FileHeader, key string) (*UploadResponse, error) {
-	// Validate file size
+	// 1) Validate file size
 	if file.Size > MaxFileSize {
 		return nil, ErrFileTooLarge
 	}
 
-	// Validate file type
+	// 2) Validate file type (extension)
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	if !isValidFileType(ext) {
 		return nil, ErrInvalidFileType
 	}
 
-	// Open the uploaded file
+	// 3) Open the file stream (reader)
 	src, err := file.Open()
 	if err != nil {
 		return nil, fmt.Errorf("opening uploaded file: %w", err)
 	}
+	// Ensure reader is closed when done
 	defer src.Close()
 
-	// Read file data
+	// 4) Read all data into memory (byte slice)
 	fileData, err := io.ReadAll(src)
 	if err != nil {
 		return nil, fmt.Errorf("reading file data: %w", err)
 	}
 
-	// Determine content type
+	// 5) Determine Content-Type header
 	contentType := file.Header.Get("Content-Type")
 	if contentType == "" {
+		// Fallback: auto-detect if header missing
 		contentType = http.DetectContentType(fileData)
 	}
 
-	// Upload to S3/MinIO
+	// 6) Upload to S3 using PutObject
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucketName),
 		Key:         aws.String(key),
@@ -147,7 +180,7 @@ func (s *Service) uploadPhoto(ctx context.Context, userID string, file *multipar
 		return nil, fmt.Errorf("uploading to S3/MinIO: %w", err)
 	}
 
-	// Build direct URL
+	// 7) Build a direct URL for public access
 	url := s.baseURLPrefix + key
 
 	return &UploadResponse{
@@ -158,7 +191,35 @@ func (s *Service) uploadPhoto(ctx context.Context, userID string, file *multipar
 	}, nil
 }
 
-// GetPresignedURL generates a presigned URL for an object
+// ==============================
+// What is a Presigned URL?
+// ==============================
+// A presigned URL is a secure, time-limited URL that provides temporary access to a private file stored in an Amazon S3 bucket.
+// It is "signed" using AWS credentials and permissions, which means the URL can only be used for a short period (e.g., 15 minutes),
+// and only to perform a specific operation (like GET or PUT) on a specific file (object).
+
+// ==============================
+// Why do we use Presigned URLs?
+// ==============================
+// - S3 buckets are typically private to protect files from unauthorized access.
+// - Sometimes, we want to allow specific users to access a file (e.g., to download a PDF invoice or an image)
+//   without making the whole bucket public or giving users full S3 access.
+// - A presigned URL allows us to safely give **temporary access** to that private file — only for the needed operation (GET or PUT),
+//   and only for a short time (defined by an expiration).
+
+// ==============================
+// Example Use Cases:
+// ==============================
+//  1. A user uploads their profile picture via a mobile app.
+//     ➝ Backend generates a presigned URL for uploading (PUT operation).
+//     ➝ The mobile app uploads the image directly to S3 using that URL.
+//
+// ==============================
+// Summary:
+// ==============================
+// Presigned URLs help you share access to private S3 files safely without exposing your AWS credentials,
+// and without making your S3 bucket public.
+// They're a common pattern for file sharing or uploads in secure backend systems.
 func (s *Service) GetPresignedURL(ctx context.Context, key string) (string, error) {
 	presignClient := s3.NewPresignClient(s.client)
 
@@ -175,7 +236,7 @@ func (s *Service) GetPresignedURL(ctx context.Context, key string) (string, erro
 	return presignedReq.URL, nil
 }
 
-// DeletePhoto deletes a photo by key
+// DeletePhoto removes an object from the bucket by key.
 func (s *Service) DeletePhoto(ctx context.Context, key string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucketName),
@@ -188,12 +249,13 @@ func (s *Service) DeletePhoto(ctx context.Context, key string) error {
 	return nil
 }
 
-// CheckIfBucketExists checks if the configured bucket exists
+// CheckIfBucketExists returns true if the configured bucket already exists.
 func (s *Service) CheckIfBucketExists(ctx context.Context) (bool, error) {
 	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String(s.bucketName),
 	})
 	if err != nil {
+		// If bucket not found, return false without error
 		var nsBucketNotFound *types.NoSuchBucket
 		if errors.As(err, &nsBucketNotFound) {
 			return false, nil
@@ -203,7 +265,7 @@ func (s *Service) CheckIfBucketExists(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// CreateBucket creates the configured bucket if it doesn't exist
+// CreateBucket creates the bucket if it does not exist, and makes it public.
 func (s *Service) CreateBucket(ctx context.Context) error {
 	exists, err := s.CheckIfBucketExists(ctx)
 	if err != nil {
@@ -220,7 +282,7 @@ func (s *Service) CreateBucket(ctx context.Context) error {
 		return fmt.Errorf("creating bucket: %w", err)
 	}
 
-	// Make the bucket public
+	// Apply policy to allow public GET of objects
 	_, err = s.client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{
 		Bucket: aws.String(s.bucketName),
 		Policy: aws.String(`{
@@ -240,14 +302,4 @@ func (s *Service) CreateBucket(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// Helper function to check if file type is allowed
-func isValidFileType(ext string) bool {
-	for _, allowedType := range AllowedFileTypes {
-		if allowedType == ext {
-			return true
-		}
-	}
-	return false
 }

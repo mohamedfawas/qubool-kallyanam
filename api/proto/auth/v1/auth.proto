@@ -22,7 +22,9 @@ service AuthService {
   
   // AdminLogin authenticates an admin user and returns JWT tokens
   rpc AdminLogin(LoginRequest) returns (LoginResponse);
-  // Other auth methods will be added in future phases
+  
+  // Delete soft deletes a user account
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
 }
 
 message RegisterRequest {
@@ -83,4 +85,14 @@ message RefreshTokenResponse {
   int32 expires_in = 4;
   string message = 5;
   string error = 6;
+}
+
+message DeleteRequest {
+  string password = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
 }

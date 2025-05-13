@@ -26,49 +26,64 @@ type PhotoStorage interface {
 	EnsureBucketExists(ctx context.Context) error
 }
 
-// S3PhotoStorage implements the PhotoStorage interface
+// S3PhotoStorage implements PhotoStorage using AWS S3 or MinIO.
+// It holds an S3 client, bucket name, base URL, and a logger for diagnostics.
+// In production, it points to AWS S3; in development, you can point Endpoint to a MinIO instance.
 type S3PhotoStorage struct {
-	s3Client   *s3.Client
-	bucketName string
-	baseURL    string
+	s3Client   *s3.Client // S3 client to perform API calls
+	bucketName string     // Name of the S3 bucket to store photos
+	baseURL    string     // Base URL to construct public URLs for objects
 	logger     logging.Logger
 }
 
 // NewS3PhotoStorage creates a new S3PhotoStorage
 func NewS3PhotoStorage(s3Config *s3pkg.Config, logger logging.Logger) (*S3PhotoStorage, error) {
-	// Create custom resolver for endpoint
+	// Define how to resolve the endpoint (where to send the request, e.g., MinIo or AWS S3)
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
-			URL:               s3Config.Endpoint,
-			HostnameImmutable: true,
-			SigningRegion:     s3Config.Region,
+			URL:               s3Config.Endpoint, // Custom URL (like https://<bucket-name>.s3.<region>.amazonaws.com) // e.g., "http://localhost:9000"
+			HostnameImmutable: true,              // prevent SDK from modifying the hostname
+			SigningRegion:     s3Config.Region,   // region for request signing
 		}, nil
 	})
 
-	// Load AWS config
+	// Load AWS config with credentials and custom endpoint
 	awsCfg, err := config.LoadDefaultConfig(context.Background(),
 		config.WithRegion(s3Config.Region),
 		config.WithEndpointResolverWithOptions(customResolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			s3Config.AccessKeyID,
 			s3Config.SecretAccessKey,
-			"", // Session token
+			"", // Session token (usually blank if not temporary credentials)
+			/*
+							A session token is a temporary security credential used only when you're using temporary access to AWS, like:
+
+				When you use IAM roles with AWS STS (Security Token Service).
+
+				When you use federated login (like Google or GitHub SSO to log in to AWS).
+
+				When you assume a role using tools like the AWS CLI.
+
+				These tokens expire after a certain time, unlike access keys which are usually long-lived.
+			*/
 		)),
 	)
 	if err != nil {
+		// Failed to load AWS config (check your keys or endpoint)
 		return nil, fmt.Errorf("unable to load SDK config: %w", err)
 	}
 
-	// Create S3 client
+	// Create the S3 client with PathStyle enabled (necessary for MinIO)
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.UsePathStyle = true
 	})
 
-	// Generate base URL
+	// Determine scheme (http or https) for generating URLs later.
 	scheme := "http"
 	if s3Config.UseSSL {
 		scheme = "https"
 	}
+	// baseURL is like "http://localhost:9000/photos/"
 	baseURL := fmt.Sprintf("%s://%s/%s/",
 		scheme,
 		strings.TrimPrefix(s3Config.Endpoint, scheme+"://"),
@@ -82,26 +97,33 @@ func NewS3PhotoStorage(s3Config *s3pkg.Config, logger logging.Logger) (*S3PhotoS
 	}, nil
 }
 
-// UploadProfilePhoto uploads a profile photo to S3
+// UploadProfilePhoto uploads a user's profile picture to the bucket.
+// Steps:
+// 1. Read all bytes from the file reader.
+// 2. Validate size (< 5MB) and extension (.jpg, .png, etc.).
+// 3. Detect MIME content type (e.g., "image/jpeg").
+// 4. Construct the object key: "user-profiles/{userID}/profile.ext".
+// 5. Call PutObject to upload.
+// 6. Return the public URL: baseURL + key.
 func (s *S3PhotoStorage) UploadProfilePhoto(ctx context.Context, userID uuid.UUID, header *multipart.FileHeader, file io.Reader) (string, error) {
 	s.logger.Info("Uploading profile photo", "userID", userID.String())
 
-	// Read file data
+	// 1. Read full file into memory (not streaming).
 	fileData, err := io.ReadAll(file)
 	if err != nil {
 		s.logger.Error("Failed to read file data", "error", err, "userID", userID.String())
 		return "", fmt.Errorf("failed to read file data: %w", err)
 	}
 
-	// Validate file size
+	// 2. Size check: limit to 5 * 1024 * 1024 bytes = 5MB.
 	if len(fileData) > 5*1024*1024 {
 		s.logger.Error("File too large", "size", len(fileData), "userID", userID.String())
 		return "", fmt.Errorf("file size exceeds the maximum allowed size of 5MB")
 	}
 
-	// Validate file extension
+	// 3. Extension check: allow common image types.
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	validExts := []string{".jpg", ".jpeg", ".png", ".gif", ".webp"}
+	validExts := []string{".jpg", ".jpeg", ".png"}
 	isValidExt := false
 	for _, validExt := range validExts {
 		if ext == validExt {
@@ -111,16 +133,16 @@ func (s *S3PhotoStorage) UploadProfilePhoto(ctx context.Context, userID uuid.UUI
 	}
 	if !isValidExt {
 		s.logger.Error("Invalid file type", "extension", ext, "userID", userID.String())
-		return "", fmt.Errorf("unsupported file type. Allowed types: jpg, jpeg, png, gif, webp")
+		return "", fmt.Errorf("unsupported file type. Allowed types: jpg, jpeg, png")
 	}
 
-	// Detect content type
-	contentType := http.DetectContentType(fileData)
+	// 4. Detect the MIME type from the data (safer than trusting extension)
+	contentType := http.DetectContentType(fileData) // e.g., "image/jpeg"
 
-	// Create a key for the file
+	// 5. Build S3 object key. Example: "user-profiles/123e4567-e89b-12d3-a456-426614174000/profile.png"
 	key := fmt.Sprintf("user-profiles/%s/profile%s", userID.String(), ext)
 
-	// Upload to S3
+	// 6. Upload the object to S3.
 	_, err = s.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucketName),
 		Key:         aws.String(key),
@@ -132,16 +154,21 @@ func (s *S3PhotoStorage) UploadProfilePhoto(ctx context.Context, userID uuid.UUI
 		return "", fmt.Errorf("failed to upload to S3: %w", err)
 	}
 
-	// Generate URL
+	// 7. Construct public URL for access: baseURL + key
 	photoURL := s.baseURL + key
 	s.logger.Info("Successfully uploaded profile photo", "userID", userID.String(), "url", photoURL)
 	return photoURL, nil
 }
 
+// DeleteProfilePhoto removes all objects under user-profiles/{userID}/
+// Steps:
+// 1. List objects with that prefix.
+// 2. If none, do nothing.
+// 3. Delete each found object.
 func (s *S3PhotoStorage) DeleteProfilePhoto(ctx context.Context, userID uuid.UUID) error {
 	s.logger.Info("Deleting profile photo", "userID", userID.String())
 
-	// List objects in the user's directory to find the profile photo
+	// Prefix to search within the bucket: folder per user.
 	prefix := fmt.Sprintf("user-profiles/%s/", userID.String())
 	listOutput, err := s.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucketName),
@@ -153,13 +180,13 @@ func (s *S3PhotoStorage) DeleteProfilePhoto(ctx context.Context, userID uuid.UUI
 		return fmt.Errorf("failed to list objects in S3: %w", err)
 	}
 
-	// If no objects found, return success (nothing to delete)
+	// If no items, nothing to delete.
 	if len(listOutput.Contents) == 0 {
 		s.logger.Info("No profile photo found to delete", "userID", userID.String())
 		return nil
 	}
 
-	// Delete each object found in the user's directory
+	// Iterate and delete each object found.
 	for _, obj := range listOutput.Contents {
 		_, err = s.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
 			Bucket: aws.String(s.bucketName),
@@ -178,14 +205,15 @@ func (s *S3PhotoStorage) DeleteProfilePhoto(ctx context.Context, userID uuid.UUI
 	return nil
 }
 
-// EnsureBucketExists checks if the bucket exists and creates it if it doesn't
+// EnsureBucketExists checks for the bucket and creates it if missing.
+// It also applies a public-read policy so uploaded images are publicly accessible.
 func (s *S3PhotoStorage) EnsureBucketExists(ctx context.Context) error {
-	// Check if bucket exists
+	// Try to get bucket metadata. If it fails, assume missing.
 	_, err := s.s3Client.HeadBucket(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String(s.bucketName),
 	})
 	if err != nil {
-		// If bucket doesn't exist, create it
+		// Bucket doesn't exist; create it.
 		s.logger.Info("Bucket doesn't exist, creating new bucket", "bucket", s.bucketName)
 		_, err = s.s3Client.CreateBucket(ctx, &s3.CreateBucketInput{
 			Bucket: aws.String(s.bucketName),
@@ -195,7 +223,7 @@ func (s *S3PhotoStorage) EnsureBucketExists(ctx context.Context) error {
 			return fmt.Errorf("failed to create bucket: %w", err)
 		}
 
-		// Set bucket policy to allow public read
+		// Define public-read policy so all objects under the bucket can be fetched by anyone.
 		policy := fmt.Sprintf(`{
 			"Version": "2012-10-17",
 			"Statement": [
@@ -208,6 +236,7 @@ func (s *S3PhotoStorage) EnsureBucketExists(ctx context.Context) error {
 			]
 		}`, s.bucketName)
 
+		// Apply bucket policy
 		_, err = s.s3Client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{
 			Bucket: aws.String(s.bucketName),
 			Policy: aws.String(policy),
