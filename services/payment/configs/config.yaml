@@ -1,0 +1,38 @@
+grpc:
+  port: 50055
+
+database:
+  postgres:
+    host: localhost
+    port: 5432
+    user: postgres
+    password: postgres
+    dbname: qubool_kallyanam_payment
+    sslmode: disable
+
+razorpay:
+  key_id: ${RAZORPAY_KEY_ID}
+  key_secret: ${RAZORPAY_KEY_SECRET}
+
+rabbitmq:
+  dsn: "amqp://guest:guest@localhost:5672/"
+  exchange_name: "qubool_events"
+
+# Subscription plans configuration (optional, will use defaults if not provided)
+plans:
+  available:
+    premium_365:
+      id: "premium_365"
+      name: "Premium Membership"
+      duration_days: 365
+      amount: 1000.0
+      currency: "INR"
+      description: "Premium membership with full access to all features"
+      features:
+        - "Unlimited profile views"
+        - "Chat with all members"
+        - "Advanced search filters"
+        - "Priority customer support"
+        - "Send unlimited messages"
+        - "Access to exclusive events"
+      is_active: true
