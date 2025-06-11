@@ -1,5 +1,6 @@
 -- 1. Drop indexes on partner_preferences
 DROP INDEX IF EXISTS idx_partner_preferences_user_profile_id;
+DROP INDEX IF EXISTS idx_user_profiles_email;
 
 -- 2. Drop partner_preferences table
 DROP TABLE IF EXISTS partner_preferences;

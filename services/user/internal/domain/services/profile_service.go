@@ -12,6 +12,7 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/validation"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/repositories"
+	"gorm.io/gorm"
 )
 
 var (
@@ -36,7 +37,7 @@ func NewProfileService(
 	}
 }
 
-func (s *ProfileService) HandleUserLogin(ctx context.Context, userID string, phone string, lastLogin time.Time) error {
+func (s *ProfileService) HandleUserLogin(ctx context.Context, userID string, phone string, email string, lastLogin time.Time) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user ID format: %w", err)
@@ -51,6 +52,10 @@ func (s *ProfileService) HandleUserLogin(ctx context.Context, userID string, pho
 		if err := s.profileRepo.UpdateLastLogin(ctx, userUUID, lastLogin); err != nil {
 			return fmt.Errorf("failed to update last login: %w", err)
 		}
+		if err := s.profileRepo.UpdateEmail(ctx, userUUID, email); err != nil {
+			s.logger.Warn("Failed to update email", "userID", userID, "error", err)
+			// Don't fail the login for this
+		}
 		s.logger.Info("Updated last login for existing profile", "userID", userID)
 		return nil
 	}
@@ -62,6 +67,7 @@ func (s *ProfileService) HandleUserLogin(ctx context.Context, userID string, pho
 	profile := &models.UserProfile{
 		UserID:                userUUID,
 		Phone:                 phone,
+		Email:                 email,
 		IsBride:               false,
 		LastLogin:             lastLogin,
 		CreatedAt:             now,
@@ -79,6 +85,38 @@ func (s *ProfileService) HandleUserLogin(ctx context.Context, userID string, pho
 	}
 
 	s.logger.Info("Created new profile for first-time login", "userID", userID)
+	return nil
+}
+
+func (s *ProfileService) HandleUserDeletion(ctx context.Context, userID string) error {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		s.logger.Error("Invalid user ID format", "userID", userID, "error", err)
+		return fmt.Errorf("invalid user ID format: %w", err)
+	}
+
+	profile, err := s.profileRepo.GetProfileByUserID(ctx, userUUID)
+	if err != nil {
+		s.logger.Error("Failed to retrieve user profile for deletion", "userID", userID, "error", err)
+		return fmt.Errorf("failed to retrieve user profile: %w", err)
+	}
+
+	if profile == nil {
+		s.logger.Info("User profile not found for deletion - already deleted or never existed", "userID", userID)
+		return nil
+	}
+
+	if err := s.profileRepo.SoftDeleteUserProfile(ctx, userUUID); err != nil {
+		s.logger.Error("Failed to soft delete user profile", "userID", userID, "error", err)
+		return fmt.Errorf("failed to soft delete user profile: %w", err)
+	}
+
+	if err := s.profileRepo.SoftDeletePartnerPreferences(ctx, profile.ID); err != nil {
+		s.logger.Error("Failed to soft delete partner preferences", "userID", userID, "profileID", profile.ID, "error", err)
+		return fmt.Errorf("failed to soft delete partner preferences: %w", err)
+	}
+
+	s.logger.Info("Successfully soft deleted user data", "userID", userID, "profileID", profile.ID)
 	return nil
 }
 
@@ -320,6 +358,41 @@ func (s *ProfileService) GetProfile(ctx context.Context, userID string) (*models
 
 	if profile == nil {
 		return nil, ErrProfileNotFound
+	}
+
+	return profile, nil
+}
+
+// GetUserUUIDByProfileID resolves public profile ID to user UUID
+func (s *ProfileService) GetUserUUIDByProfileID(ctx context.Context, profileID uint64) (string, error) {
+	if profileID == 0 {
+		return "", fmt.Errorf("%w: profile ID cannot be zero", ErrInvalidInput)
+	}
+
+	userUUID, err := s.profileRepo.GetUserUUIDByProfileID(ctx, profileID)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", ErrProfileNotFound
+		}
+		return "", fmt.Errorf("failed to resolve profile ID: %w", err)
+	}
+
+	return userUUID.String(), nil
+}
+
+// GetBasicProfileByUUID gets basic profile information by user UUID
+func (s *ProfileService) GetBasicProfileByUUID(ctx context.Context, userUUID string) (*models.UserProfile, error) {
+	parsedUUID, err := uuid.Parse(userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid user UUID format: %v", ErrInvalidInput, err)
+	}
+
+	profile, err := s.profileRepo.GetBasicProfileByUUID(ctx, parsedUUID)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ErrProfileNotFound
+		}
+		return nil, fmt.Errorf("failed to get basic profile: %w", err)
 	}
 
 	return profile, nil

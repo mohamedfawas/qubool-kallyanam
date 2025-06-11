@@ -7,27 +7,32 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/chat"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/payment"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/user"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
 	authHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
+	chatHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/chat"
+	paymentHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/payment"
 	userHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/user"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	config     *config.Config
-	logger     logging.Logger
-	httpServer *http.Server
-	router     *gin.Engine
-	authClient *auth.Client
-	userClient *user.Client
-	jwtManager *jwt.Manager
-	auth       *middleware.Auth
+	config        *config.Config
+	logger        logging.Logger
+	httpServer    *http.Server
+	router        *gin.Engine
+	authClient    *auth.Client
+	userClient    *user.Client
+	chatClient    *chat.Client
+	paymentClient *payment.Client
+	jwtManager    *jwt.Manager
+	auth          *middleware.Auth
 }
 
 // NewServer creates a new server instance
@@ -52,6 +57,16 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 	if err != nil {
 		// Example: If User service is unreachable, this error helps catch that early
 		return nil, fmt.Errorf("failed to create user client: %w", err)
+	}
+
+	chatClient, err := chat.NewClient(cfg.Services.Chat.Address) // Add this block
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chat client: %w", err)
+	}
+
+	paymentClient, err := payment.NewClient(cfg.Services.Payment.Address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create payment client: %w", err)
 	}
 
 	// Create JWT Manager for token validation
@@ -81,14 +96,16 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 
 	// Create the Server instance with all components
 	server := &Server{
-		config:     cfg,
-		logger:     logger,
-		httpServer: httpServer,
-		router:     router,
-		authClient: authClient,
-		userClient: userClient,
-		jwtManager: jwtManager,
-		auth:       auth,
+		config:        cfg,
+		logger:        logger,
+		httpServer:    httpServer,
+		router:        router,
+		authClient:    authClient,
+		userClient:    userClient,
+		chatClient:    chatClient,
+		paymentClient: paymentClient,
+		jwtManager:    jwtManager,
+		auth:          auth,
 	}
 
 	// Register all API routes
@@ -99,20 +116,18 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 
 // setupRoutes configures all routes
 func (s *Server) setupRoutes() {
-	// Create the authentication handler by passing the authClient and logger.
-	// Example: If a user sends a login request, this handler will forward it
-	// to the Auth microservice using the authClient.
+	s.router.Static("/static", "./static")
+
 	authHandler := authHandler.NewHandler(s.authClient, s.logger)
-
-	// Create the user handler by passing the userClient and logger.
 	userHandler := userHandler.NewHandler(s.userClient, s.logger)
+	chatHandler := chatHandler.NewHandler(s.chatClient, s.userClient, s.logger)
+	paymentHandler := paymentHandler.NewHandler(s.paymentClient, s.logger)
 
-	// SetupRouter is a helper function that actually connects the route paths
-	// (like "/v1/auth/login" or "/v1/user/profile") to the appropriate handler functions
-	// in the authHandler and userHandler.
 	SetupRouter(s.router,
 		authHandler,
 		userHandler,
+		chatHandler,
+		paymentHandler,
 		s.auth,
 		s.logger)
 }
@@ -131,6 +146,13 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	if s.userClient != nil {
 		s.userClient.Close()
+	}
+	if s.chatClient != nil {
+		s.chatClient.Close()
+	}
+
+	if s.paymentClient != nil {
+		s.paymentClient.Close()
 	}
 	return s.httpServer.Shutdown(ctx)
 }

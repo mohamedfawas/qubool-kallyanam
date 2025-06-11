@@ -27,7 +27,7 @@ func RunMigrations(dbURL, migrationsDir string) error {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	// Create migrate instance
+	// Step 3: Create a `migrate` instance, which ties together the source and database
 	m, err := migrate.New(
 		fmt.Sprintf("file://%s", filepath.ToSlash(absPath)),
 		dbURL,
@@ -35,14 +35,17 @@ func RunMigrations(dbURL, migrationsDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
+	// Ensure resources are cleaned up after migrations run
 	defer m.Close()
 
-	// Run migrations
+	// Step 4: Execute the migrations (apply all "Up" migrations)
 	if err := m.Up(); err != nil {
+		// If there are no new migrations, ErrNoChange is returned
 		if errors.Is(err, migrate.ErrNoChange) {
 			log.Println("No migrations to apply")
 			return nil
 		}
+		// For any other error, wrap and return
 		return fmt.Errorf("migration failed: %w", err)
 	}
 

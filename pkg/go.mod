@@ -9,7 +9,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.79.3
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/google/uuid v1.6.0
 	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/razorpay/razorpay-go v1.3.4
 	github.com/redis/go-redis/v9 v9.7.3
 	go.mongodb.org/mongo-driver v1.17.3
 	go.uber.org/zap v1.27.0

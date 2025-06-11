@@ -24,6 +24,10 @@ type PhotoStorage interface {
 	UploadProfilePhoto(ctx context.Context, userID uuid.UUID, header *multipart.FileHeader, file io.Reader) (string, error)
 	DeleteProfilePhoto(ctx context.Context, userID uuid.UUID) error
 	EnsureBucketExists(ctx context.Context) error
+	UploadUserPhoto(ctx context.Context, userID uuid.UUID, header *multipart.FileHeader, file io.Reader, displayOrder int) (string, string, error) // returns (photoURL, photoKey, error)
+	DeleteUserPhoto(ctx context.Context, photoKey string) error
+	UploadUserVideo(ctx context.Context, userID uuid.UUID, header *multipart.FileHeader, file io.Reader) (string, string, error) // returns (videoURL, videoKey, error)
+	DeleteUserVideo(ctx context.Context, videoKey string) error
 }
 
 // S3PhotoStorage implements PhotoStorage using AWS S3 or MinIO.
@@ -251,5 +255,168 @@ func (s *S3PhotoStorage) EnsureBucketExists(ctx context.Context) error {
 		s.logger.Info("Bucket already exists", "bucket", s.bucketName)
 	}
 
+	return nil
+}
+
+// UploadUserPhoto uploads an additional photo for a user
+func (s *S3PhotoStorage) UploadUserPhoto(ctx context.Context, userID uuid.UUID, header *multipart.FileHeader, file io.Reader, displayOrder int) (string, string, error) {
+	s.logger.Info("Uploading user photo", "userID", userID.String(), "displayOrder", displayOrder)
+
+	// Read file data
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		s.logger.Error("Failed to read file data", "error", err, "userID", userID.String())
+		return "", "", fmt.Errorf("failed to read file data: %w", err)
+	}
+
+	// Size check: 5MB limit
+	if len(fileData) > 5*1024*1024 {
+		s.logger.Error("File too large", "size", len(fileData), "userID", userID.String())
+		return "", "", fmt.Errorf("file size exceeds the maximum allowed size of 5MB")
+	}
+
+	// Extension check
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	validExts := []string{".jpg", ".jpeg", ".png"}
+	isValidExt := false
+	for _, validExt := range validExts {
+		if ext == validExt {
+			isValidExt = true
+			break
+		}
+	}
+	if !isValidExt {
+		s.logger.Error("Invalid file type", "extension", ext, "userID", userID.String())
+		return "", "", fmt.Errorf("unsupported file type. Allowed types: jpg, jpeg, png")
+	}
+
+	// Detect content type
+	contentType := http.DetectContentType(fileData)
+
+	// Build S3 object key: "user-photos/{userID}/photo_{displayOrder}.ext"
+	key := fmt.Sprintf("user-photos/%s/photo_%d%s", userID.String(), displayOrder, ext)
+
+	// Upload to S3
+	_, err = s.s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucketName),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(fileData),
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		s.logger.Error("Failed to upload to S3", "error", err, "userID", userID.String())
+		return "", "", fmt.Errorf("failed to upload to S3: %w", err)
+	}
+
+	// Construct public URL
+	photoURL := s.baseURL + key
+	s.logger.Info("Successfully uploaded user photo", "userID", userID.String(), "displayOrder", displayOrder, "url", photoURL)
+	return photoURL, key, nil
+}
+
+// DeleteUserPhoto deletes a specific user photo by its key
+func (s *S3PhotoStorage) DeleteUserPhoto(ctx context.Context, photoKey string) error {
+	s.logger.Info("Deleting user photo", "key", photoKey)
+
+	_, err := s.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(photoKey),
+	})
+
+	if err != nil {
+		s.logger.Error("Failed to delete user photo from S3", "error", err, "key", photoKey)
+		return fmt.Errorf("failed to delete user photo from S3: %w", err)
+	}
+
+	s.logger.Info("Successfully deleted user photo", "key", photoKey)
+	return nil
+}
+
+// UploadUserVideo uploads an introduction video for a user
+func (s *S3PhotoStorage) UploadUserVideo(ctx context.Context, userID uuid.UUID, header *multipart.FileHeader, file io.Reader) (string, string, error) {
+	s.logger.Info("Uploading user video", "userID", userID.String())
+
+	// Read file data
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		s.logger.Error("Failed to read video file data", "error", err, "userID", userID.String())
+		return "", "", fmt.Errorf("failed to read video file data: %w", err)
+	}
+
+	// Size check: 50MB limit for 1-minute video
+	if len(fileData) > 50*1024*1024 {
+		s.logger.Error("Video file too large", "size", len(fileData), "userID", userID.String())
+		return "", "", fmt.Errorf("video file size exceeds the maximum allowed size of 50MB")
+	}
+
+	// Extension check
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	validExts := []string{".mp4", ".mov", ".avi", ".mkv"}
+	isValidExt := false
+	for _, validExt := range validExts {
+		if ext == validExt {
+			isValidExt = true
+			break
+		}
+	}
+	if !isValidExt {
+		s.logger.Error("Invalid video file type", "extension", ext, "userID", userID.String())
+		return "", "", fmt.Errorf("unsupported video file type. Allowed types: mp4, mov, avi, mkv")
+	}
+
+	// Detect content type
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		// Set default content type based on extension
+		switch ext {
+		case ".mp4":
+			contentType = "video/mp4"
+		case ".mov":
+			contentType = "video/quicktime"
+		case ".avi":
+			contentType = "video/x-msvideo"
+		case ".mkv":
+			contentType = "video/x-matroska"
+		default:
+			contentType = "video/mp4"
+		}
+	}
+
+	// Build S3 object key: "user-videos/{userID}/intro_video.ext"
+	key := fmt.Sprintf("user-videos/%s/intro_video%s", userID.String(), ext)
+
+	// Upload to S3
+	_, err = s.s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucketName),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(fileData),
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		s.logger.Error("Failed to upload video to S3", "error", err, "userID", userID.String())
+		return "", "", fmt.Errorf("failed to upload video to S3: %w", err)
+	}
+
+	// Construct public URL
+	videoURL := s.baseURL + key
+	s.logger.Info("Successfully uploaded user video", "userID", userID.String(), "url", videoURL)
+	return videoURL, key, nil
+}
+
+// DeleteUserVideo deletes a specific user video by its key
+func (s *S3PhotoStorage) DeleteUserVideo(ctx context.Context, videoKey string) error {
+	s.logger.Info("Deleting user video", "key", videoKey)
+
+	_, err := s.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(videoKey),
+	})
+
+	if err != nil {
+		s.logger.Error("Failed to delete user video from S3", "error", err, "key", videoKey)
+		return fmt.Errorf("failed to delete user video from S3: %w", err)
+	}
+
+	s.logger.Info("Successfully deleted user video", "key", videoKey)
 	return nil
 }

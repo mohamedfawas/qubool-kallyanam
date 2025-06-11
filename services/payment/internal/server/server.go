@@ -13,6 +13,7 @@ import (
 	paymentpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/payment/v1"
 	pgdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/messaging/rabbitmq"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/payment/razorpay"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/adapters/postgres"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/config"
@@ -23,10 +24,11 @@ import (
 )
 
 type Server struct {
-	config     *config.Config
-	logger     logging.Logger
-	grpcServer *grpc.Server
-	pgClient   *pgdb.Client
+	config       *config.Config
+	logger       logging.Logger
+	grpcServer   *grpc.Server
+	pgClient     *pgdb.Client
+	rabbitClient *rabbitmq.Client
 }
 
 func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
@@ -42,6 +44,11 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create postgres client: %w", err)
 	}
 
+	rabbitClient, err := rabbitmq.NewClient(cfg.RabbitMQ.DSN, cfg.RabbitMQ.ExchangeName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RabbitMQ client: %w", err)
+	}
+
 	// Auto-migrate the models
 	if err := autoMigrate(pgClient.DB); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
@@ -54,15 +61,16 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		),
 	)
 
-	if err := registerServices(grpcServer, pgClient.DB, cfg, logger); err != nil {
+	if err := registerServices(grpcServer, pgClient.DB, cfg, logger, rabbitClient); err != nil {
 		return nil, fmt.Errorf("failed to register services: %w", err)
 	}
 
 	return &Server{
-		config:     cfg,
-		logger:     logger,
-		grpcServer: grpcServer,
-		pgClient:   pgClient,
+		config:       cfg,
+		logger:       logger,
+		grpcServer:   grpcServer,
+		pgClient:     pgClient,
+		rabbitClient: rabbitClient,
 	}, nil
 }
 
@@ -78,6 +86,7 @@ func registerServices(
 	db *gorm.DB,
 	cfg *config.Config,
 	logger logging.Logger,
+	rabbitClient *rabbitmq.Client,
 ) error {
 	// Register health service
 	health.RegisterHealthService(grpcServer, db)
@@ -88,8 +97,14 @@ func registerServices(
 	// Create Razorpay service
 	razorpayService := razorpay.NewService(cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret)
 
-	// Create payment service
-	paymentService := services.NewPaymentService(paymentRepo, razorpayService, logger)
+	// Create payment service with new configuration structure
+	paymentService := services.NewPaymentService(services.PaymentServiceConfig{
+		PaymentRepo:     paymentRepo,
+		RazorpayService: razorpayService,
+		PlansConfig:     &cfg.Plans,
+		Logger:          logger,
+		MessageBroker:   rabbitClient,
+	})
 
 	// Create payment handler
 	paymentHandler := v1.NewPaymentHandler(paymentService, logger)
@@ -139,5 +154,8 @@ func (s *Server) Stop() {
 	s.grpcServer.GracefulStop()
 	if s.pgClient != nil {
 		s.pgClient.Close()
+	}
+	if s.rabbitClient != nil {
+		s.rabbitClient.Close()
 	}
 }

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -106,5 +107,24 @@ func (r *RegistrationRepo) SoftDeleteUser(ctx context.Context, userID string) er
 			"is_active":  false,
 			"updated_at": now,
 			"deleted_at": now,
+		}).Error
+}
+
+func (r *RegistrationRepo) UpdateUser(ctx context.Context, user *models.User) error {
+	return r.db.WithContext(ctx).Save(user).Error
+}
+
+func (r *RegistrationRepo) UpdatePremiumUntil(ctx context.Context, userID string, premiumUntil time.Time) error {
+	id, err := uuid.Parse(userID)
+	if err != nil {
+		return err
+	}
+
+	now := indianstandardtime.Now()
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"premium_until": premiumUntil,
+			"updated_at":    now,
 		}).Error
 }

@@ -1,4 +1,3 @@
-// File: auth/internal/adapters/redis/otp_repository.go
 package redis
 
 import (

@@ -24,23 +24,27 @@ import (
 
 type ProfileHandler struct {
 	userpb.UnimplementedUserServiceServer
-	profileService *services.ProfileService
-	photoService   *services.PhotoService
-	jwtManager     *jwt.Manager
-	logger         logging.Logger
+	profileService     *services.ProfileService
+	photoService       *services.PhotoService
+	matchmakingService *services.MatchmakingService
+
+	jwtManager *jwt.Manager
+	logger     logging.Logger
 }
 
 func NewProfileHandler(
 	profileService *services.ProfileService,
 	photoService *services.PhotoService,
+	matchmakingService *services.MatchmakingService,
 	jwtManager *jwt.Manager,
 	logger logging.Logger,
 ) *ProfileHandler {
 	return &ProfileHandler{
-		profileService: profileService,
-		photoService:   photoService,
-		jwtManager:     jwtManager,
-		logger:         logger,
+		profileService:     profileService,
+		photoService:       photoService,
+		matchmakingService: matchmakingService,
+		jwtManager:         jwtManager,
+		logger:             logger,
 	}
 }
 
@@ -840,5 +844,512 @@ func (h *ProfileHandler) GetPartnerPreferences(ctx context.Context, req *userpb.
 			PreferredEducationLevels:   educationLevels,
 			PreferredHomeDistricts:     homeDistricts,
 		},
+	}, nil
+}
+
+// GetProfileByID resolves public profile ID to user UUID
+func (h *ProfileHandler) GetProfileByID(ctx context.Context, req *userpb.GetProfileByIDRequest) (*userpb.GetProfileByIDResponse, error) {
+	h.logger.Info("GetProfileByID gRPC request", "profileID", req.ProfileId)
+
+	// Validate request
+	if req.ProfileId == 0 {
+		return &userpb.GetProfileByIDResponse{
+			Success: false,
+			Message: "Invalid profile ID",
+			Error:   "Profile ID must be greater than 0",
+		}, status.Error(codes.InvalidArgument, "Profile ID must be greater than 0")
+	}
+
+	// Call service
+	userUUID, err := h.profileService.GetUserUUIDByProfileID(ctx, req.ProfileId)
+	if err != nil {
+		h.logger.Error("Failed to get user UUID by profile ID", "error", err, "profileID", req.ProfileId)
+
+		var errMsg string
+		var statusCode codes.Code
+
+		switch {
+		case errors.Is(err, services.ErrProfileNotFound):
+			errMsg = "Profile not found"
+			statusCode = codes.NotFound
+		case errors.Is(err, services.ErrInvalidInput):
+			errMsg = "Invalid profile ID"
+			statusCode = codes.InvalidArgument
+		default:
+			errMsg = "Failed to resolve profile ID"
+			statusCode = codes.Internal
+		}
+
+		return &userpb.GetProfileByIDResponse{
+			Success: false,
+			Message: "Failed to resolve profile ID",
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	return &userpb.GetProfileByIDResponse{
+		Success:  true,
+		Message:  "Profile ID resolved successfully",
+		UserUuid: userUUID,
+	}, nil
+}
+
+// GetBasicProfile gets basic profile information by user UUID
+func (h *ProfileHandler) GetBasicProfile(ctx context.Context, req *userpb.GetBasicProfileRequest) (*userpb.GetBasicProfileResponse, error) {
+	h.logger.Info("GetBasicProfile gRPC request", "userUUID", req.UserUuid)
+
+	// Validate request
+	if req.UserUuid == "" {
+		return &userpb.GetBasicProfileResponse{
+			Success: false,
+			Message: "Invalid user UUID",
+			Error:   "User UUID is required",
+		}, status.Error(codes.InvalidArgument, "User UUID is required")
+	}
+
+	// Call service
+	profile, err := h.profileService.GetBasicProfileByUUID(ctx, req.UserUuid)
+	if err != nil {
+		h.logger.Error("Failed to get basic profile", "error", err, "userUUID", req.UserUuid)
+
+		var errMsg string
+		var statusCode codes.Code
+
+		switch {
+		case errors.Is(err, services.ErrProfileNotFound):
+			errMsg = "Profile not found"
+			statusCode = codes.NotFound
+		case errors.Is(err, services.ErrInvalidInput):
+			errMsg = "Invalid user UUID"
+			statusCode = codes.InvalidArgument
+		default:
+			errMsg = "Failed to get profile"
+			statusCode = codes.Internal
+		}
+
+		return &userpb.GetBasicProfileResponse{
+			Success: false,
+			Message: "Failed to get basic profile",
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	// Build response
+	basicProfile := &userpb.BasicProfileData{
+		Id:       uint64(profile.ID),
+		FullName: profile.FullName,
+		IsActive: !profile.IsDeleted,
+	}
+
+	if profile.ProfilePictureURL != nil {
+		basicProfile.ProfilePictureUrl = *profile.ProfilePictureURL
+	}
+
+	return &userpb.GetBasicProfileResponse{
+		Success: true,
+		Message: "Basic profile retrieved successfully",
+		Profile: basicProfile,
+	}, nil
+}
+
+// UploadUserPhoto handles uploading additional photos
+func (h *ProfileHandler) UploadUserPhoto(ctx context.Context, req *userpb.UploadUserPhotoRequest) (*userpb.UploadUserPhotoResponse, error) {
+	// Extract user ID from authentication
+	userID, err := h.extractUserID(ctx)
+	if err != nil {
+		h.logger.Error("Authentication failed", "error", err)
+		return &userpb.UploadUserPhotoResponse{
+			Success: false,
+			Message: "Authentication required",
+			Error:   err.Error(),
+		}, err
+	}
+
+	// Validate input
+	if len(req.GetPhotoData()) == 0 {
+		return &userpb.UploadUserPhotoResponse{
+			Success: false,
+			Message: "Photo data is required",
+			Error:   "empty photo data",
+		}, status.Error(codes.InvalidArgument, "Photo data is required")
+	}
+
+	if req.GetFileName() == "" {
+		return &userpb.UploadUserPhotoResponse{
+			Success: false,
+			Message: "Filename is required",
+			Error:   "missing filename",
+		}, status.Error(codes.InvalidArgument, "Filename is required")
+	}
+
+	if req.GetDisplayOrder() < 1 || req.GetDisplayOrder() > 3 {
+		return &userpb.UploadUserPhotoResponse{
+			Success: false,
+			Message: "Display order must be between 1 and 3",
+			Error:   "invalid display order",
+		}, status.Error(codes.InvalidArgument, "Display order must be between 1 and 3")
+	}
+
+	// Validate file extension
+	ext := strings.ToLower(filepath.Ext(req.GetFileName()))
+	validExt := false
+	for _, allowedExt := range []string{".jpg", ".jpeg", ".png"} {
+		if ext == allowedExt {
+			validExt = true
+			break
+		}
+	}
+
+	if !validExt {
+		return &userpb.UploadUserPhotoResponse{
+			Success: false,
+			Message: "Unsupported file type. Allowed types: jpg, jpeg, png",
+			Error:   "invalid file type",
+		}, status.Error(codes.InvalidArgument, "Unsupported file type")
+	}
+
+	// Create temporary file for the photo service
+	tempFile, err := createTempFile(req.GetPhotoData(), req.GetFileName())
+	if err != nil {
+		h.logger.Error("Failed to create temp file", "error", err, "userID", userID)
+		return &userpb.UploadUserPhotoResponse{
+			Success: false,
+			Message: "Failed to process photo",
+			Error:   "temp file creation failed",
+		}, status.Error(codes.Internal, "Failed to process photo")
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	// Create file header
+	fileHeader := &multipart.FileHeader{
+		Filename: req.GetFileName(),
+		Size:     int64(len(req.GetPhotoData())),
+		Header:   make(map[string][]string),
+	}
+	if req.GetContentType() != "" {
+		fileHeader.Header.Set("Content-Type", req.GetContentType())
+	}
+
+	// Reset file pointer
+	tempFile.Seek(0, 0)
+
+	// Upload photo
+	photoURL, err := h.photoService.UploadUserPhoto(ctx, userID, fileHeader, tempFile, int(req.GetDisplayOrder()))
+	if err != nil {
+		h.logger.Error("Failed to upload user photo", "error", err, "userID", userID)
+		var errMsg string
+		var statusCode codes.Code
+		switch {
+		case errors.Is(err, services.ErrProfileNotFound):
+			errMsg = "Profile not found"
+			statusCode = codes.NotFound
+		case errors.Is(err, services.ErrInvalidInput):
+			errMsg = err.Error()
+			statusCode = codes.InvalidArgument
+		case errors.Is(err, services.ErrPhotoUploadFailed):
+			errMsg = "Failed to upload photo"
+			statusCode = codes.Internal
+		default:
+			errMsg = "Internal server error"
+			statusCode = codes.Internal
+		}
+		return &userpb.UploadUserPhotoResponse{
+			Success: false,
+			Message: "Failed to upload photo",
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	return &userpb.UploadUserPhotoResponse{
+		Success:  true,
+		Message:  "Photo uploaded successfully",
+		PhotoUrl: photoURL,
+	}, nil
+}
+
+// GetUserPhotos retrieves all photos for a user
+func (h *ProfileHandler) GetUserPhotos(ctx context.Context, req *userpb.GetUserPhotosRequest) (*userpb.GetUserPhotosResponse, error) {
+	// Extract user ID from authentication
+	userID, err := h.extractUserID(ctx)
+	if err != nil {
+		h.logger.Error("Authentication failed", "error", err)
+		return &userpb.GetUserPhotosResponse{
+			Success: false,
+			Message: "Authentication required",
+			Error:   err.Error(),
+		}, err
+	}
+
+	// Get photos
+	photos, err := h.photoService.GetUserPhotos(ctx, userID)
+	if err != nil {
+		h.logger.Error("Failed to get user photos", "error", err, "userID", userID)
+		return &userpb.GetUserPhotosResponse{
+			Success: false,
+			Message: "Failed to retrieve photos",
+			Error:   "internal server error",
+		}, status.Error(codes.Internal, "Failed to retrieve photos")
+	}
+
+	// Convert to proto format
+	protoPhotos := make([]*userpb.UserPhotoData, len(photos))
+	for i, photo := range photos {
+		protoPhotos[i] = &userpb.UserPhotoData{
+			PhotoUrl:     photo.PhotoURL,
+			DisplayOrder: int32(photo.DisplayOrder),
+			CreatedAt:    timestamppb.New(photo.CreatedAt),
+		}
+	}
+
+	return &userpb.GetUserPhotosResponse{
+		Success: true,
+		Message: "Photos retrieved successfully",
+		Photos:  protoPhotos,
+	}, nil
+}
+
+// DeleteUserPhoto deletes a specific user photo
+func (h *ProfileHandler) DeleteUserPhoto(ctx context.Context, req *userpb.DeleteUserPhotoRequest) (*userpb.DeleteUserPhotoResponse, error) {
+	// Extract user ID from authentication
+	userID, err := h.extractUserID(ctx)
+	if err != nil {
+		h.logger.Error("Authentication failed", "error", err)
+		return &userpb.DeleteUserPhotoResponse{
+			Success: false,
+			Message: "Authentication required",
+			Error:   err.Error(),
+		}, err
+	}
+
+	// Validate display order
+	if req.GetDisplayOrder() < 1 || req.GetDisplayOrder() > 3 {
+		return &userpb.DeleteUserPhotoResponse{
+			Success: false,
+			Message: "Display order must be between 1 and 3",
+			Error:   "invalid display order",
+		}, status.Error(codes.InvalidArgument, "Display order must be between 1 and 3")
+	}
+
+	// Delete photo
+	err = h.photoService.DeleteUserPhoto(ctx, userID, int(req.GetDisplayOrder()))
+	if err != nil {
+		h.logger.Error("Failed to delete user photo", "error", err, "userID", userID)
+		var errMsg string
+		var statusCode codes.Code
+		if err.Error() == "photo not found at display order "+string(rune(req.GetDisplayOrder()+'0')) {
+			errMsg = "Photo not found"
+			statusCode = codes.NotFound
+		} else {
+			errMsg = "Failed to delete photo"
+			statusCode = codes.Internal
+		}
+		return &userpb.DeleteUserPhotoResponse{
+			Success: false,
+			Message: errMsg,
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	return &userpb.DeleteUserPhotoResponse{
+		Success: true,
+		Message: "Photo deleted successfully",
+	}, nil
+}
+
+// UploadUserVideo handles uploading introduction video
+func (h *ProfileHandler) UploadUserVideo(ctx context.Context, req *userpb.UploadUserVideoRequest) (*userpb.UploadUserVideoResponse, error) {
+	// Extract user ID from authentication
+	userID, err := h.extractUserID(ctx)
+	if err != nil {
+		h.logger.Error("Authentication failed", "error", err)
+		return &userpb.UploadUserVideoResponse{
+			Success: false,
+			Message: "Authentication required",
+			Error:   err.Error(),
+		}, err
+	}
+
+	// Validate input
+	if len(req.GetVideoData()) == 0 {
+		return &userpb.UploadUserVideoResponse{
+			Success: false,
+			Message: "Video data is required",
+			Error:   "empty video data",
+		}, status.Error(codes.InvalidArgument, "Video data is required")
+	}
+
+	if req.GetFileName() == "" {
+		return &userpb.UploadUserVideoResponse{
+			Success: false,
+			Message: "Filename is required",
+			Error:   "missing filename",
+		}, status.Error(codes.InvalidArgument, "Filename is required")
+	}
+
+	// Validate file extension
+	ext := strings.ToLower(filepath.Ext(req.GetFileName()))
+	validExt := false
+	for _, allowedExt := range []string{".mp4", ".mov", ".avi", ".mkv"} {
+		if ext == allowedExt {
+			validExt = true
+			break
+		}
+	}
+
+	if !validExt {
+		return &userpb.UploadUserVideoResponse{
+			Success: false,
+			Message: "Unsupported file type. Allowed types: mp4, mov, avi, mkv",
+			Error:   "invalid file type",
+		}, status.Error(codes.InvalidArgument, "Unsupported file type")
+	}
+
+	// Create temporary file
+	tempFile, err := createTempFile(req.GetVideoData(), req.GetFileName())
+	if err != nil {
+		h.logger.Error("Failed to create temp file", "error", err, "userID", userID)
+		return &userpb.UploadUserVideoResponse{
+			Success: false,
+			Message: "Failed to process video",
+			Error:   "temp file creation failed",
+		}, status.Error(codes.Internal, "Failed to process video")
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	// Create file header
+	fileHeader := &multipart.FileHeader{
+		Filename: req.GetFileName(),
+		Size:     int64(len(req.GetVideoData())),
+		Header:   make(map[string][]string),
+	}
+	if req.GetContentType() != "" {
+		fileHeader.Header.Set("Content-Type", req.GetContentType())
+	}
+
+	// Reset file pointer
+	tempFile.Seek(0, 0)
+
+	// Upload video
+	videoURL, err := h.photoService.UploadUserVideo(ctx, userID, fileHeader, tempFile)
+	if err != nil {
+		h.logger.Error("Failed to upload user video", "error", err, "userID", userID)
+		var errMsg string
+		var statusCode codes.Code
+		switch {
+		case errors.Is(err, services.ErrProfileNotFound):
+			errMsg = "Profile not found"
+			statusCode = codes.NotFound
+		case errors.Is(err, services.ErrInvalidInput):
+			errMsg = err.Error()
+			statusCode = codes.InvalidArgument
+		case errors.Is(err, services.ErrPhotoUploadFailed):
+			errMsg = "Failed to upload video"
+			statusCode = codes.Internal
+		default:
+			errMsg = "Internal server error"
+			statusCode = codes.Internal
+		}
+		return &userpb.UploadUserVideoResponse{
+			Success: false,
+			Message: "Failed to upload video",
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	return &userpb.UploadUserVideoResponse{
+		Success:  true,
+		Message:  "Video uploaded successfully",
+		VideoUrl: videoURL,
+	}, nil
+}
+
+// GetUserVideo retrieves the video for a user
+func (h *ProfileHandler) GetUserVideo(ctx context.Context, req *userpb.GetUserVideoRequest) (*userpb.GetUserVideoResponse, error) {
+	// Extract user ID from authentication
+	userID, err := h.extractUserID(ctx)
+	if err != nil {
+		h.logger.Error("Authentication failed", "error", err)
+		return &userpb.GetUserVideoResponse{
+			Success: false,
+			Message: "Authentication required",
+			Error:   err.Error(),
+		}, err
+	}
+
+	// Get video
+	video, err := h.photoService.GetUserVideo(ctx, userID)
+	if err != nil {
+		h.logger.Error("Failed to get user video", "error", err, "userID", userID)
+		return &userpb.GetUserVideoResponse{
+			Success: false,
+			Message: "Failed to retrieve video",
+			Error:   "internal server error",
+		}, status.Error(codes.Internal, "Failed to retrieve video")
+	}
+
+	if video == nil {
+		return &userpb.GetUserVideoResponse{
+			Success: true,
+			Message: "No video found",
+		}, nil
+	}
+
+	// Convert to proto format
+	protoVideo := &userpb.UserVideoData{
+		VideoUrl:  video.VideoURL,
+		FileName:  video.FileName,
+		FileSize:  video.FileSize,
+		CreatedAt: timestamppb.New(video.CreatedAt),
+	}
+
+	if video.DurationSeconds != nil {
+		protoVideo.DurationSeconds = int32(*video.DurationSeconds)
+	}
+
+	return &userpb.GetUserVideoResponse{
+		Success: true,
+		Message: "Video retrieved successfully",
+		Video:   protoVideo,
+	}, nil
+}
+
+// DeleteUserVideo deletes the user's introduction video
+func (h *ProfileHandler) DeleteUserVideo(ctx context.Context, req *userpb.DeleteUserVideoRequest) (*userpb.DeleteUserVideoResponse, error) {
+	// Extract user ID from authentication
+	userID, err := h.extractUserID(ctx)
+	if err != nil {
+		h.logger.Error("Authentication failed", "error", err)
+		return &userpb.DeleteUserVideoResponse{
+			Success: false,
+			Message: "Authentication required",
+			Error:   err.Error(),
+		}, err
+	}
+
+	// Delete video
+	err = h.photoService.DeleteUserVideo(ctx, userID)
+	if err != nil {
+		h.logger.Error("Failed to delete user video", "error", err, "userID", userID)
+		var errMsg string
+		var statusCode codes.Code
+		if strings.Contains(err.Error(), "video not found") {
+			errMsg = "Video not found"
+			statusCode = codes.NotFound
+		} else {
+			errMsg = "Failed to delete video"
+			statusCode = codes.Internal
+		}
+		return &userpb.DeleteUserVideoResponse{
+			Success: false,
+			Message: errMsg,
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	return &userpb.DeleteUserVideoResponse{
+		Success: true,
+		Message: "Video deleted successfully",
 	}, nil
 }

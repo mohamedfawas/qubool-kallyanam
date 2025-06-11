@@ -30,9 +30,10 @@ CREATE TYPE home_district_enum AS ENUM (
 -- 2. user_profiles table
 CREATE TABLE IF NOT EXISTS user_profiles (
   id                      BIGSERIAL      PRIMARY KEY,    -- local PK
-  user_id                 UUID           NOT NULL,       -- from Auth service
+  user_id                 UUID           NOT NULL UNIQUE,       -- from Auth service
   is_bride                BOOLEAN        NOT NULL DEFAULT FALSE,
-  full_name               VARCHAR(200)   ,
+  full_name               VARCHAR(200)   UNIQUE,
+  email                   VARCHAR(255)   UNIQUE,
   phone VARCHAR(20),
   date_of_birth           DATE           ,
   height_cm               INT            CHECK (height_cm BETWEEN 130 AND 220),
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 
 -- 3. Indexes
 CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
 
 -- 4. partner_preferences table
 CREATE TABLE IF NOT EXISTS partner_preferences (

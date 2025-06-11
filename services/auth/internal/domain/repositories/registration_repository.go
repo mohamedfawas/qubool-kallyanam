@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/models"
 )
@@ -31,4 +32,7 @@ type RegistrationRepository interface {
 
 	// SoftDeleteUser soft deletes a user account
 	SoftDeleteUser(ctx context.Context, userID string) error
+
+	UpdateUser(ctx context.Context, user *models.User) error
+	UpdatePremiumUntil(ctx context.Context, userID string, premiumUntil time.Time) error //
 }

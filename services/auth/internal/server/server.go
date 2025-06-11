@@ -1,8 +1,8 @@
-// File: auth/internal/server/server.go
 package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 
@@ -38,6 +38,7 @@ type Server struct {
 	pgClient     *pgdb.Client
 	redisClient  *redisdb.Client
 	rabbitClient *rabbitmq.Client
+	authService  *services.AuthService
 }
 
 // NewServer creates a new gRPC server
@@ -82,24 +83,32 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		),
 	)
 
-	// Configure and register all services
-	if err := registerServices(grpcServer,
+	authService, err := registerServices(grpcServer,
 		pgClient.DB,
 		redisClient,
 		cfg,
 		logger,
-		rabbitClient); err != nil {
+		rabbitClient)
+	if err != nil {
 		return nil, fmt.Errorf("failed to register services: %w", err)
 	}
 
-	return &Server{
+	server := &Server{ // <- Change from direct return to variable
 		config:       cfg,
 		logger:       logger,
 		grpcServer:   grpcServer,
 		pgClient:     pgClient,
 		redisClient:  redisClient,
 		rabbitClient: rabbitClient,
-	}, nil
+		authService:  authService, // <- Add this line
+	}
+
+	// Subscribe to subscription events (add this block)
+	if err := server.subscribeToSubscriptionEvents(); err != nil {
+		return nil, fmt.Errorf("failed to subscribe to events: %w", err)
+	}
+
+	return server, nil
 }
 
 // registerServices sets up and registers all gRPC services
@@ -110,7 +119,7 @@ func registerServices(
 	cfg *config.Config,
 	logger logging.Logger,
 	rabbitClient *rabbitmq.Client,
-) error {
+) (*services.AuthService, error) {
 	// Register health service
 	// Health service needs the raw Redis client
 	health.RegisterHealthService(grpcServer, db, redisClient.GetClient())
@@ -145,7 +154,7 @@ func registerServices(
 		FromName:     cfg.Email.FromName,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create email client: %w", err)
+		return nil, fmt.Errorf("failed to create email client: %w", err)
 	}
 
 	// Create registration service with OTP repository
@@ -189,7 +198,7 @@ func registerServices(
 		logger)
 	authpb.RegisterAuthServiceServer(grpcServer, authHandler)
 
-	return nil
+	return authService, nil
 }
 
 // Create a logging interceptor for gRPC
@@ -249,4 +258,53 @@ func (s *Server) Stop() {
 	if s.rabbitClient != nil {
 		s.rabbitClient.Close()
 	}
+}
+
+func (s *Server) subscribeToSubscriptionEvents() error {
+	// Subscribe to subscription activation events
+	err := s.rabbitClient.Subscribe("subscription.activated", s.handleSubscriptionEvent)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to subscription.activated: %w", err)
+	}
+
+	// Subscribe to subscription extension events
+	err = s.rabbitClient.Subscribe("subscription.extended", s.handleSubscriptionEvent)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to subscription.extended: %w", err)
+	}
+
+	s.logger.Info("Subscribed to subscription events")
+	return nil
+}
+
+// handleSubscriptionEvent processes subscription events to update premium status
+func (s *Server) handleSubscriptionEvent(message []byte) error {
+	var event struct {
+		UserID       string    `json:"user_id"`
+		PremiumUntil time.Time `json:"premium_until"`
+		EventType    string    `json:"event_type"`
+		PlanID       string    `json:"plan_id"`
+		Timestamp    time.Time `json:"timestamp"`
+	}
+
+	if err := json.Unmarshal(message, &event); err != nil {
+		s.logger.Error("Failed to unmarshal subscription event", "error", err)
+		return err
+	}
+
+	s.logger.Info("Received subscription event",
+		"userID", event.UserID,
+		"eventType", event.EventType,
+		"premiumUntil", event.PremiumUntil)
+
+	// Update premium status
+	ctx := context.Background()
+	err := s.authService.UpdateUserPremiumStatus(ctx, event.UserID, event.PremiumUntil)
+	if err != nil {
+		s.logger.Error("Failed to update premium status", "userID", event.UserID, "error", err)
+		return err
+	}
+
+	s.logger.Info("Successfully updated premium status", "userID", event.UserID)
+	return nil
 }

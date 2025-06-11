@@ -1,4 +1,3 @@
-// File: internal/adapters/redis/token_repository.go
 package redis
 
 import (
@@ -28,22 +27,34 @@ func NewTokenRepository(client *redis.Client) repositories.TokenRepository {
 	}
 }
 
-// StoreRefreshToken saves a refresh token for a user with expiration
+// StoreRefreshToken stores a refresh token in Redis with an expiration time.
+// Example:
+//
+//	userID = "123"
+//	token = "abc-refresh-token"
+//	expiry = 24 hours
+//	Redis key will be "refresh_token:123" with value "abc-refresh-token"
 func (r *TokenRepo) StoreRefreshToken(ctx context.Context, userID string, token string, expiry time.Duration) error {
 	key := fmt.Sprintf("%s%s", refreshTokenPrefix, userID)
+
 	return r.client.Set(ctx, key, token, expiry).Err()
 }
 
-// ValidateRefreshToken checks if a refresh token exists and is valid for a user
+// ValidateRefreshToken checks if the provided token matches the one stored in Redis for a specific user.
+// Returns true if valid, false if token doesn't match or doesn't exist.
 func (r *TokenRepo) ValidateRefreshToken(ctx context.Context, userID string, token string) (bool, error) {
+	// Build the key for the refresh token using the user ID
 	key := fmt.Sprintf("%s%s", refreshTokenPrefix, userID)
+
+	// Fetch the stored token from Redis
 	storedToken, err := r.client.Get(ctx, key).Result()
 
+	// If Redis returns redis.Nil, the key doesn't exist — no token stored
 	if err == redis.Nil {
-		// Token not found, so it's invalid
+		// Token not found — this usually means it's invalid or expired
 		return false, nil
 	} else if err != nil {
-		// Redis error
+		// Some Redis error occurred (e.g., connection issue)
 		return false, err
 	}
 
@@ -51,26 +62,48 @@ func (r *TokenRepo) ValidateRefreshToken(ctx context.Context, userID string, tok
 	return storedToken == token, nil
 }
 
-// DeleteRefreshToken removes a refresh token
+// DeleteRefreshToken deletes the stored refresh token from Redis for the given user ID.
+// Example: Removes "refresh_token:123" key from Redis
 func (r *TokenRepo) DeleteRefreshToken(ctx context.Context, userID string) error {
+	// Build the key
 	key := fmt.Sprintf("%s%s", refreshTokenPrefix, userID)
+
+	// Delete the key from Redis
 	return r.client.Del(ctx, key).Err()
 }
 
-// BlacklistToken adds a token to blacklist (for logout)
+// BlacklistToken stores a token ID in Redis to mark it as blacklisted (i.e., no longer valid).
+// Used when a user logs out or if a token should be forcefully invalidated.
+// Example:
+//
+//	tokenID = "abc-token-id"
+//	expiry = 1 hour
+//	Redis key = "blacklist:abc-token-id" with value = 1 (dummy value)
 func (r *TokenRepo) BlacklistToken(ctx context.Context, tokenID string, expiry time.Duration) error {
+	// Build blacklist key
 	key := fmt.Sprintf("%s%s", blacklistPrefix, tokenID)
+
+	// Store a dummy value (1) just to indicate presence, with an expiration
 	return r.client.Set(ctx, key, 1, expiry).Err()
 }
 
-// IsTokenBlacklisted checks if a token is blacklisted
+// IsTokenBlacklisted checks if a given token ID is in the blacklist.
+// Returns true if blacklisted, false otherwise.
+// Example:
+//
+//	tokenID = "abc-token-id"
+//	If "blacklist:abc-token-id" exists in Redis, it means token is blacklisted.
 func (r *TokenRepo) IsTokenBlacklisted(ctx context.Context, tokenID string) (bool, error) {
+	// Build blacklist key
 	key := fmt.Sprintf("%s%s", blacklistPrefix, tokenID)
+
+	// Check if the key exists in Redis
 	exists, err := r.client.Exists(ctx, key).Result()
 
 	if err != nil {
 		return false, err
 	}
 
+	// Redis "Exists" returns 1 if key exists, 0 if not
 	return exists > 0, nil
 }

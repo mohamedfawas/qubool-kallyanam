@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package chat.v1;
+
+option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/proto/chat/v1;chatpb";
+
+import "google/protobuf/timestamp.proto";
+
+// ChatService provides chat functionality
+service ChatService {
+  rpc CreateConversation(CreateConversationRequest) returns (CreateConversationResponse);
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+  rpc GetUserConversations(GetUserConversationsRequest) returns (GetUserConversationsResponse);
+  // TODO: Implement chat endpoints in Phase 2
+  // rpc GetConversations(GetConversationsRequest) returns (GetConversationsResponse);
+  // rpc DeleteMessage(DeleteMessageRequest) returns (DeleteMessageResponse);
+}
+
+// TODO: Add conversation and message proto definitions in Phase 2
+
+// CreateConversation messages
+message CreateConversationRequest {
+  string user_id = 1;        // Current user UUID
+  string participant_id = 2;  // Other user UUID
+}
+
+message CreateConversationResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  ConversationData conversation = 4;
+}
+
+// SendMessage messages
+message SendMessageRequest {
+  string conversation_id = 1;  // MongoDB ObjectID as string
+  string user_id = 2;         // Current user UUID
+  string text = 3;            // Message content
+}
+
+message SendMessageResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  MessageData message_data = 4;
+}
+
+// GetMessages messages
+message GetMessagesRequest {
+  string conversation_id = 1;  // MongoDB ObjectID as string
+  string user_id = 2;         // Current user UUID
+  int32 limit = 3;            // Number of messages (default 20, max 50)
+  int32 offset = 4;           // Pagination offset (default 0)
+}
+
+message GetMessagesResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  repeated MessageData messages = 4;
+  PaginationData pagination = 5;
+}
+
+// GetUserConversations messages
+message GetUserConversationsRequest {
+  string user_id = 1;  // Current user UUID
+  int32 limit = 2;     // Number of conversations (default 20, max 50)
+  int32 offset = 3;    // Pagination offset (default 0)
+}
+
+message GetUserConversationsResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  repeated ConversationSummary conversations = 4;
+  PaginationData pagination = 5;
+}
+
+// Conversation data structure
+message ConversationData {
+  string id = 1;                                    // MongoDB ObjectID as string
+  repeated string participants = 2;                 // User UUIDs
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp updated_at = 4;
+  google.protobuf.Timestamp last_message_at = 5;   // Optional
+}
+
+message MessageData {
+  string id = 1;                              // MongoDB ObjectID as string
+  string conversation_id = 2;                 // MongoDB ObjectID as string
+  string sender_id = 3;                       // User UUID
+  string text = 4;                           // Message content
+  google.protobuf.Timestamp sent_at = 5;     // When message was sent
+}
+
+message ConversationSummary {
+  string id = 1;                                    // MongoDB ObjectID as string
+  repeated string participants = 2;                 // User UUIDs (other participants excluding current user)
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp last_message_at = 4;   // Optional
+  LastMessageData last_message = 5;                // Optional - last message details
+}
+
+message LastMessageData {
+  string text = 1;                           // Message content
+  string sender_id = 2;                      // Who sent the message
+  google.protobuf.Timestamp sent_at = 3;     // When it was sent
+}
+
+
+message PaginationData {
+  int32 limit = 1;      // Number of messages requested
+  int32 offset = 2;     // Pagination offset
+  bool has_more = 3;    // Whether there are more messages
+  int32 total = 4;      // Total number of messages in conversation
+}

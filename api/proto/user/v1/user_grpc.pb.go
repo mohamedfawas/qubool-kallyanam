@@ -27,26 +27,46 @@ const (
 	UserService_UpdatePartnerPreferences_FullMethodName = "/user.v1.UserService/UpdatePartnerPreferences"
 	UserService_PatchPartnerPreferences_FullMethodName  = "/user.v1.UserService/PatchPartnerPreferences"
 	UserService_GetPartnerPreferences_FullMethodName    = "/user.v1.UserService/GetPartnerPreferences"
+	UserService_GetRecommendedMatches_FullMethodName    = "/user.v1.UserService/GetRecommendedMatches"
+	UserService_RecordMatchAction_FullMethodName        = "/user.v1.UserService/RecordMatchAction"
+	UserService_UpdateMatchAction_FullMethodName        = "/user.v1.UserService/UpdateMatchAction"
+	UserService_GetMatchHistory_FullMethodName          = "/user.v1.UserService/GetMatchHistory"
+	UserService_GetMutualMatches_FullMethodName         = "/user.v1.UserService/GetMutualMatches"
+	UserService_GetProfileByID_FullMethodName           = "/user.v1.UserService/GetProfileByID"
+	UserService_GetBasicProfile_FullMethodName          = "/user.v1.UserService/GetBasicProfile"
+	UserService_UploadUserPhoto_FullMethodName          = "/user.v1.UserService/UploadUserPhoto"
+	UserService_GetUserPhotos_FullMethodName            = "/user.v1.UserService/GetUserPhotos"
+	UserService_DeleteUserPhoto_FullMethodName          = "/user.v1.UserService/DeleteUserPhoto"
+	UserService_UploadUserVideo_FullMethodName          = "/user.v1.UserService/UploadUserVideo"
+	UserService_GetUserVideo_FullMethodName             = "/user.v1.UserService/GetUserVideo"
+	UserService_DeleteUserVideo_FullMethodName          = "/user.v1.UserService/DeleteUserVideo"
 )
 
 // UserServiceClient is the client API for UserService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type UserServiceClient interface {
-	// UpdateProfile updates user profile information
 	UpdateProfile(ctx context.Context, in *UpdateProfileRequest, opts ...grpc.CallOption) (*UpdateProfileResponse, error)
-	// PatchProfile partially updates user profile information
 	PatchProfile(ctx context.Context, in *PatchProfileRequest, opts ...grpc.CallOption) (*UpdateProfileResponse, error)
-	// UploadProfilePhoto uploads a profile photo for a user
 	UploadProfilePhoto(ctx context.Context, in *UploadProfilePhotoRequest, opts ...grpc.CallOption) (*UploadProfilePhotoResponse, error)
-	// DeleteProfilePhoto deletes the profile photo of a user
 	DeleteProfilePhoto(ctx context.Context, in *DeleteProfilePhotoRequest, opts ...grpc.CallOption) (*DeleteProfilePhotoResponse, error)
-	// GetProfile retrieves user profile information
 	GetProfile(ctx context.Context, in *GetProfileRequest, opts ...grpc.CallOption) (*GetProfileResponse, error)
-	// UpdatePartnerPreferences updates a user's partner preferences
 	UpdatePartnerPreferences(ctx context.Context, in *UpdatePartnerPreferencesRequest, opts ...grpc.CallOption) (*UpdatePartnerPreferencesResponse, error)
 	PatchPartnerPreferences(ctx context.Context, in *PatchPartnerPreferencesRequest, opts ...grpc.CallOption) (*UpdatePartnerPreferencesResponse, error)
 	GetPartnerPreferences(ctx context.Context, in *GetPartnerPreferencesRequest, opts ...grpc.CallOption) (*GetPartnerPreferencesResponse, error)
+	GetRecommendedMatches(ctx context.Context, in *GetRecommendedMatchesRequest, opts ...grpc.CallOption) (*GetRecommendedMatchesResponse, error)
+	RecordMatchAction(ctx context.Context, in *RecordMatchActionRequest, opts ...grpc.CallOption) (*RecordMatchActionResponse, error)
+	UpdateMatchAction(ctx context.Context, in *UpdateMatchActionRequest, opts ...grpc.CallOption) (*UpdateMatchActionResponse, error)
+	GetMatchHistory(ctx context.Context, in *GetMatchHistoryRequest, opts ...grpc.CallOption) (*GetMatchHistoryResponse, error)
+	GetMutualMatches(ctx context.Context, in *GetMutualMatchesRequest, opts ...grpc.CallOption) (*GetMutualMatchesResponse, error)
+	GetProfileByID(ctx context.Context, in *GetProfileByIDRequest, opts ...grpc.CallOption) (*GetProfileByIDResponse, error)
+	GetBasicProfile(ctx context.Context, in *GetBasicProfileRequest, opts ...grpc.CallOption) (*GetBasicProfileResponse, error)
+	UploadUserPhoto(ctx context.Context, in *UploadUserPhotoRequest, opts ...grpc.CallOption) (*UploadUserPhotoResponse, error)
+	GetUserPhotos(ctx context.Context, in *GetUserPhotosRequest, opts ...grpc.CallOption) (*GetUserPhotosResponse, error)
+	DeleteUserPhoto(ctx context.Context, in *DeleteUserPhotoRequest, opts ...grpc.CallOption) (*DeleteUserPhotoResponse, error)
+	UploadUserVideo(ctx context.Context, in *UploadUserVideoRequest, opts ...grpc.CallOption) (*UploadUserVideoResponse, error)
+	GetUserVideo(ctx context.Context, in *GetUserVideoRequest, opts ...grpc.CallOption) (*GetUserVideoResponse, error)
+	DeleteUserVideo(ctx context.Context, in *DeleteUserVideoRequest, opts ...grpc.CallOption) (*DeleteUserVideoResponse, error)
 }
 
 type userServiceClient struct {
@@ -137,24 +157,161 @@ func (c *userServiceClient) GetPartnerPreferences(ctx context.Context, in *GetPa
 	return out, nil
 }
 
+func (c *userServiceClient) GetRecommendedMatches(ctx context.Context, in *GetRecommendedMatchesRequest, opts ...grpc.CallOption) (*GetRecommendedMatchesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRecommendedMatchesResponse)
+	err := c.cc.Invoke(ctx, UserService_GetRecommendedMatches_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) RecordMatchAction(ctx context.Context, in *RecordMatchActionRequest, opts ...grpc.CallOption) (*RecordMatchActionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordMatchActionResponse)
+	err := c.cc.Invoke(ctx, UserService_RecordMatchAction_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) UpdateMatchAction(ctx context.Context, in *UpdateMatchActionRequest, opts ...grpc.CallOption) (*UpdateMatchActionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateMatchActionResponse)
+	err := c.cc.Invoke(ctx, UserService_UpdateMatchAction_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetMatchHistory(ctx context.Context, in *GetMatchHistoryRequest, opts ...grpc.CallOption) (*GetMatchHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMatchHistoryResponse)
+	err := c.cc.Invoke(ctx, UserService_GetMatchHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetMutualMatches(ctx context.Context, in *GetMutualMatchesRequest, opts ...grpc.CallOption) (*GetMutualMatchesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMutualMatchesResponse)
+	err := c.cc.Invoke(ctx, UserService_GetMutualMatches_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetProfileByID(ctx context.Context, in *GetProfileByIDRequest, opts ...grpc.CallOption) (*GetProfileByIDResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetProfileByIDResponse)
+	err := c.cc.Invoke(ctx, UserService_GetProfileByID_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetBasicProfile(ctx context.Context, in *GetBasicProfileRequest, opts ...grpc.CallOption) (*GetBasicProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBasicProfileResponse)
+	err := c.cc.Invoke(ctx, UserService_GetBasicProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) UploadUserPhoto(ctx context.Context, in *UploadUserPhotoRequest, opts ...grpc.CallOption) (*UploadUserPhotoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UploadUserPhotoResponse)
+	err := c.cc.Invoke(ctx, UserService_UploadUserPhoto_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetUserPhotos(ctx context.Context, in *GetUserPhotosRequest, opts ...grpc.CallOption) (*GetUserPhotosResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUserPhotosResponse)
+	err := c.cc.Invoke(ctx, UserService_GetUserPhotos_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) DeleteUserPhoto(ctx context.Context, in *DeleteUserPhotoRequest, opts ...grpc.CallOption) (*DeleteUserPhotoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteUserPhotoResponse)
+	err := c.cc.Invoke(ctx, UserService_DeleteUserPhoto_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) UploadUserVideo(ctx context.Context, in *UploadUserVideoRequest, opts ...grpc.CallOption) (*UploadUserVideoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UploadUserVideoResponse)
+	err := c.cc.Invoke(ctx, UserService_UploadUserVideo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetUserVideo(ctx context.Context, in *GetUserVideoRequest, opts ...grpc.CallOption) (*GetUserVideoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUserVideoResponse)
+	err := c.cc.Invoke(ctx, UserService_GetUserVideo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) DeleteUserVideo(ctx context.Context, in *DeleteUserVideoRequest, opts ...grpc.CallOption) (*DeleteUserVideoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteUserVideoResponse)
+	err := c.cc.Invoke(ctx, UserService_DeleteUserVideo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
 type UserServiceServer interface {
-	// UpdateProfile updates user profile information
 	UpdateProfile(context.Context, *UpdateProfileRequest) (*UpdateProfileResponse, error)
-	// PatchProfile partially updates user profile information
 	PatchProfile(context.Context, *PatchProfileRequest) (*UpdateProfileResponse, error)
-	// UploadProfilePhoto uploads a profile photo for a user
 	UploadProfilePhoto(context.Context, *UploadProfilePhotoRequest) (*UploadProfilePhotoResponse, error)
-	// DeleteProfilePhoto deletes the profile photo of a user
 	DeleteProfilePhoto(context.Context, *DeleteProfilePhotoRequest) (*DeleteProfilePhotoResponse, error)
-	// GetProfile retrieves user profile information
 	GetProfile(context.Context, *GetProfileRequest) (*GetProfileResponse, error)
-	// UpdatePartnerPreferences updates a user's partner preferences
 	UpdatePartnerPreferences(context.Context, *UpdatePartnerPreferencesRequest) (*UpdatePartnerPreferencesResponse, error)
 	PatchPartnerPreferences(context.Context, *PatchPartnerPreferencesRequest) (*UpdatePartnerPreferencesResponse, error)
 	GetPartnerPreferences(context.Context, *GetPartnerPreferencesRequest) (*GetPartnerPreferencesResponse, error)
+	GetRecommendedMatches(context.Context, *GetRecommendedMatchesRequest) (*GetRecommendedMatchesResponse, error)
+	RecordMatchAction(context.Context, *RecordMatchActionRequest) (*RecordMatchActionResponse, error)
+	UpdateMatchAction(context.Context, *UpdateMatchActionRequest) (*UpdateMatchActionResponse, error)
+	GetMatchHistory(context.Context, *GetMatchHistoryRequest) (*GetMatchHistoryResponse, error)
+	GetMutualMatches(context.Context, *GetMutualMatchesRequest) (*GetMutualMatchesResponse, error)
+	GetProfileByID(context.Context, *GetProfileByIDRequest) (*GetProfileByIDResponse, error)
+	GetBasicProfile(context.Context, *GetBasicProfileRequest) (*GetBasicProfileResponse, error)
+	UploadUserPhoto(context.Context, *UploadUserPhotoRequest) (*UploadUserPhotoResponse, error)
+	GetUserPhotos(context.Context, *GetUserPhotosRequest) (*GetUserPhotosResponse, error)
+	DeleteUserPhoto(context.Context, *DeleteUserPhotoRequest) (*DeleteUserPhotoResponse, error)
+	UploadUserVideo(context.Context, *UploadUserVideoRequest) (*UploadUserVideoResponse, error)
+	GetUserVideo(context.Context, *GetUserVideoRequest) (*GetUserVideoResponse, error)
+	DeleteUserVideo(context.Context, *DeleteUserVideoRequest) (*DeleteUserVideoResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -188,6 +345,45 @@ func (UnimplementedUserServiceServer) PatchPartnerPreferences(context.Context, *
 }
 func (UnimplementedUserServiceServer) GetPartnerPreferences(context.Context, *GetPartnerPreferencesRequest) (*GetPartnerPreferencesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPartnerPreferences not implemented")
+}
+func (UnimplementedUserServiceServer) GetRecommendedMatches(context.Context, *GetRecommendedMatchesRequest) (*GetRecommendedMatchesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRecommendedMatches not implemented")
+}
+func (UnimplementedUserServiceServer) RecordMatchAction(context.Context, *RecordMatchActionRequest) (*RecordMatchActionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordMatchAction not implemented")
+}
+func (UnimplementedUserServiceServer) UpdateMatchAction(context.Context, *UpdateMatchActionRequest) (*UpdateMatchActionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateMatchAction not implemented")
+}
+func (UnimplementedUserServiceServer) GetMatchHistory(context.Context, *GetMatchHistoryRequest) (*GetMatchHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMatchHistory not implemented")
+}
+func (UnimplementedUserServiceServer) GetMutualMatches(context.Context, *GetMutualMatchesRequest) (*GetMutualMatchesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMutualMatches not implemented")
+}
+func (UnimplementedUserServiceServer) GetProfileByID(context.Context, *GetProfileByIDRequest) (*GetProfileByIDResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetProfileByID not implemented")
+}
+func (UnimplementedUserServiceServer) GetBasicProfile(context.Context, *GetBasicProfileRequest) (*GetBasicProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBasicProfile not implemented")
+}
+func (UnimplementedUserServiceServer) UploadUserPhoto(context.Context, *UploadUserPhotoRequest) (*UploadUserPhotoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UploadUserPhoto not implemented")
+}
+func (UnimplementedUserServiceServer) GetUserPhotos(context.Context, *GetUserPhotosRequest) (*GetUserPhotosResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserPhotos not implemented")
+}
+func (UnimplementedUserServiceServer) DeleteUserPhoto(context.Context, *DeleteUserPhotoRequest) (*DeleteUserPhotoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteUserPhoto not implemented")
+}
+func (UnimplementedUserServiceServer) UploadUserVideo(context.Context, *UploadUserVideoRequest) (*UploadUserVideoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UploadUserVideo not implemented")
+}
+func (UnimplementedUserServiceServer) GetUserVideo(context.Context, *GetUserVideoRequest) (*GetUserVideoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserVideo not implemented")
+}
+func (UnimplementedUserServiceServer) DeleteUserVideo(context.Context, *DeleteUserVideoRequest) (*DeleteUserVideoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteUserVideo not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -354,6 +550,240 @@ func _UserService_GetPartnerPreferences_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_GetRecommendedMatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecommendedMatchesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetRecommendedMatches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetRecommendedMatches_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetRecommendedMatches(ctx, req.(*GetRecommendedMatchesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_RecordMatchAction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordMatchActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).RecordMatchAction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_RecordMatchAction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).RecordMatchAction(ctx, req.(*RecordMatchActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_UpdateMatchAction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateMatchActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).UpdateMatchAction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_UpdateMatchAction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).UpdateMatchAction(ctx, req.(*UpdateMatchActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetMatchHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMatchHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetMatchHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetMatchHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetMatchHistory(ctx, req.(*GetMatchHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetMutualMatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMutualMatchesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetMutualMatches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetMutualMatches_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetMutualMatches(ctx, req.(*GetMutualMatchesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetProfileByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProfileByIDRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetProfileByID(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetProfileByID_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetProfileByID(ctx, req.(*GetProfileByIDRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetBasicProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBasicProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetBasicProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetBasicProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetBasicProfile(ctx, req.(*GetBasicProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_UploadUserPhoto_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UploadUserPhotoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).UploadUserPhoto(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_UploadUserPhoto_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).UploadUserPhoto(ctx, req.(*UploadUserPhotoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetUserPhotos_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserPhotosRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetUserPhotos(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetUserPhotos_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetUserPhotos(ctx, req.(*GetUserPhotosRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_DeleteUserPhoto_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteUserPhotoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).DeleteUserPhoto(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_DeleteUserPhoto_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).DeleteUserPhoto(ctx, req.(*DeleteUserPhotoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_UploadUserVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UploadUserVideoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).UploadUserVideo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_UploadUserVideo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).UploadUserVideo(ctx, req.(*UploadUserVideoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetUserVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserVideoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetUserVideo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetUserVideo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetUserVideo(ctx, req.(*GetUserVideoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_DeleteUserVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteUserVideoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).DeleteUserVideo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_DeleteUserVideo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).DeleteUserVideo(ctx, req.(*DeleteUserVideoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -392,6 +822,58 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetPartnerPreferences",
 			Handler:    _UserService_GetPartnerPreferences_Handler,
+		},
+		{
+			MethodName: "GetRecommendedMatches",
+			Handler:    _UserService_GetRecommendedMatches_Handler,
+		},
+		{
+			MethodName: "RecordMatchAction",
+			Handler:    _UserService_RecordMatchAction_Handler,
+		},
+		{
+			MethodName: "UpdateMatchAction",
+			Handler:    _UserService_UpdateMatchAction_Handler,
+		},
+		{
+			MethodName: "GetMatchHistory",
+			Handler:    _UserService_GetMatchHistory_Handler,
+		},
+		{
+			MethodName: "GetMutualMatches",
+			Handler:    _UserService_GetMutualMatches_Handler,
+		},
+		{
+			MethodName: "GetProfileByID",
+			Handler:    _UserService_GetProfileByID_Handler,
+		},
+		{
+			MethodName: "GetBasicProfile",
+			Handler:    _UserService_GetBasicProfile_Handler,
+		},
+		{
+			MethodName: "UploadUserPhoto",
+			Handler:    _UserService_UploadUserPhoto_Handler,
+		},
+		{
+			MethodName: "GetUserPhotos",
+			Handler:    _UserService_GetUserPhotos_Handler,
+		},
+		{
+			MethodName: "DeleteUserPhoto",
+			Handler:    _UserService_DeleteUserPhoto_Handler,
+		},
+		{
+			MethodName: "UploadUserVideo",
+			Handler:    _UserService_UploadUserVideo_Handler,
+		},
+		{
+			MethodName: "GetUserVideo",
+			Handler:    _UserService_GetUserVideo_Handler,
+		},
+		{
+			MethodName: "DeleteUserVideo",
+			Handler:    _UserService_DeleteUserVideo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

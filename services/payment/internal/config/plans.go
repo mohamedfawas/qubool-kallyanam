@@ -6,19 +6,19 @@ import (
 
 // SubscriptionPlan represents a subscription plan configuration
 type SubscriptionPlan struct {
-	ID           string   `json:"id" yaml:"id"`
-	Name         string   `json:"name" yaml:"name"`
-	DurationDays int      `json:"duration_days" yaml:"duration_days"`
-	Amount       float64  `json:"amount" yaml:"amount"` // in rupees
-	Currency     string   `json:"currency" yaml:"currency"`
-	Description  string   `json:"description" yaml:"description"`
-	Features     []string `json:"features" yaml:"features"`
-	IsActive     bool     `json:"is_active" yaml:"is_active"`
+	ID           string   `json:"id" yaml:"id" mapstructure:"id"`
+	Name         string   `json:"name" yaml:"name" mapstructure:"name"`
+	DurationDays int      `json:"duration_days" yaml:"duration_days" mapstructure:"duration_days"`
+	Amount       float64  `json:"amount" yaml:"amount" mapstructure:"amount"`
+	Currency     string   `json:"currency" yaml:"currency" mapstructure:"currency"`
+	Description  string   `json:"description" yaml:"description" mapstructure:"description"`
+	Features     []string `json:"features" yaml:"features" mapstructure:"features"`
+	IsActive     bool     `json:"is_active" yaml:"is_active" mapstructure:"is_active"`
 }
 
 // PlansConfig holds all subscription plans
 type PlansConfig struct {
-	Available map[string]SubscriptionPlan `json:"available" yaml:"available"`
+	Available map[string]SubscriptionPlan `json:"available" yaml:"available" mapstructure:"available"`
 }
 
 // GetDefaultPlansConfig returns the default plans configuration for MVP

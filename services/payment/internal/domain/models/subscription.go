@@ -46,21 +46,3 @@ func (s *Subscription) IsActive() bool {
 	}
 	return time.Now().Before(*s.EndDate)
 }
-
-type SubscriptionPlan struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	DurationDays int     `json:"duration_days"`
-	Amount       float64 `json:"amount"` // in rupees
-	Currency     string  `json:"currency"`
-}
-
-var DefaultPlans = map[string]SubscriptionPlan{
-	"premium_365": {
-		ID:           "premium_365",
-		Name:         "Premium Membership",
-		DurationDays: 365,
-		Amount:       1000.0,
-		Currency:     "INR",
-	},
-}

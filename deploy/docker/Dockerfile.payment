@@ -1,0 +1,62 @@
+FROM golang:1.23.4-alpine AS builder
+
+WORKDIR /app
+
+ENV GOPROXY=https://goproxy.io,direct
+
+# Install required packages (rarely changes)
+RUN apk add --no-cache git wget
+
+# Copy only go.mod and go.sum files first (rarely changes)
+COPY pkg/go.mod pkg/go.sum ./pkg/
+COPY api/go.mod ./api/
+COPY services/payment/go.mod ./services/payment/
+
+# Download all dependencies in one step
+WORKDIR /app/pkg
+RUN go mod edit -require=github.com/rabbitmq/amqp091-go@v1.8.1 && \
+    go mod download -x
+    
+WORKDIR /app/services/payment
+RUN go mod download -x
+
+# Now copy the source code (changes frequently)
+WORKDIR /app
+COPY api/ ./api/
+COPY pkg/ ./pkg/
+COPY services/payment/ ./services/payment/
+
+# Build the application
+WORKDIR /app/services/payment
+RUN go mod tidy && \
+    CGO_ENABLED=0 go build -o /payment ./cmd/main.go
+
+# Install grpc_health_probe
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.19 && \
+    wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
+    chmod +x /bin/grpc_health_probe
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy binary and health probe
+COPY --from=builder /payment .
+COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe
+
+# Create config directory and copy config
+RUN mkdir -p /app/configs
+COPY services/payment/configs/config.yaml /app/configs/
+
+# Override localhost in the config with proper container names
+RUN sed -i 's/host: localhost/host: postgres/g' /app/configs/config.yaml && \
+    sed -i 's|amqp://guest:guest@localhost:5672/|amqp://guest:guest@rabbitmq:5672/|g' /app/configs/config.yaml
+    
+# Expose port
+EXPOSE 50055
+
+# Run the application
+CMD ["./payment"]

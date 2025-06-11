@@ -3,21 +3,54 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/spf13/viper"
 )
 
 // Config represents the application configuration
 type Config struct {
-	GRPC     GRPCConfig     `mapstructure:"grpc"`
-	Database DatabaseConfig `mapstructure:"database"`
-	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Storage  StorageConfig  `mapstructure:"storage"`
+	GRPC        GRPCConfig        `mapstructure:"grpc"`
+	Database    DatabaseConfig    `mapstructure:"database"`
+	RabbitMQ    RabbitMQConfig    `mapstructure:"rabbitmq"`
+	Email       EmailConfig       `mapstructure:"email"`
+	Auth        AuthConfig        `mapstructure:"auth"`
+	Storage     StorageConfig     `mapstructure:"storage"`
+	Matchmaking MatchmakingConfig `mapstructure:"matchmaking"`
+}
+
+type EmailConfig struct {
+	SMTPHost  string `mapstructure:"smtp_host"`
+	SMTPPort  int    `mapstructure:"smtp_port"`
+	Username  string `mapstructure:"username"`
+	Password  string `mapstructure:"password"`
+	FromEmail string `mapstructure:"from"`
+	FromName  string `mapstructure:"from_name"`
 }
 
 type StorageConfig struct {
 	S3 S3Config `mapstructure:"s3"`
+}
+
+type MatchmakingConfig struct {
+	Weights     MatchWeights      `mapstructure:"weights"`
+	HardFilters HardFiltersConfig `mapstructure:"hard_filters"`
+}
+
+type MatchWeights struct {
+	Community  float64 `mapstructure:"community"`
+	Profession float64 `mapstructure:"profession"`
+	Location   float64 `mapstructure:"location"`
+	Recency    float64 `mapstructure:"recency"`
+}
+
+type HardFiltersConfig struct {
+	Enabled                         bool `mapstructure:"enabled"`
+	ApplyAgeFilter                  bool `mapstructure:"apply_age_filter"`
+	ApplyHeightFilter               bool `mapstructure:"apply_height_filter"`
+	ApplyMaritalStatusFilter        bool `mapstructure:"apply_marital_status_filter"`
+	ApplyPhysicallyChallengedFilter bool `mapstructure:"apply_physically_challenged_filter"`
+	ApplyEducationFilter            bool `mapstructure:"apply_education_filter"`
 }
 
 type S3Config struct {
@@ -116,6 +149,18 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if useSSL := os.Getenv("S3_USE_SSL"); useSSL == "true" {
 		config.Storage.S3.UseSSL = true
+	}
+
+	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
+		config.Email.SMTPHost = smtpHost
+	}
+	if smtpPort := os.Getenv("SMTP_PORT"); smtpPort != "" {
+		if port, err := strconv.Atoi(smtpPort); err == nil {
+			config.Email.SMTPPort = port
+		}
+	}
+	if emailPass := os.Getenv("EMAIL_PASSWORD"); emailPass != "" {
+		config.Email.Password = emailPass
 	}
 
 	return &config, nil

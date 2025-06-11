@@ -3,7 +3,9 @@ module github.com/mohamedfawas/qubool-kallyanam/services/gateway
 go 1.23.4
 
 require (
+	github.com/gin-contrib/cors v1.7.5
 	github.com/gin-gonic/gin v1.10.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/mohamedfawas/qubool-kallyanam/api v0.0.0-00010101000000-000000000000
 	github.com/mohamedfawas/qubool-kallyanam/pkg v0.0.0-00010101000000-000000000000
 	github.com/spf13/viper v1.20.1
@@ -47,7 +49,6 @@ require (
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250218202821-56aae31c358a // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

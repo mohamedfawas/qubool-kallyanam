@@ -1,4 +1,3 @@
-// File: auth/internal/domain/services/registration_service.go
 package services
 
 import (
@@ -61,21 +60,24 @@ func NewRegistrationService(
 	}
 }
 
-// getOTPKey formats the key for OTP storage with the proper prefix
+// getOTPKey formats the OTP key by prefixing with "otp:"
+// Example: if identifier is "user@example.com", this returns "otp:user@example.com"
 func (s *RegistrationService) getOTPKey(identifier string) string {
 	return otpPrefix + identifier
 }
 
-// storeOTP generates and stores an OTP for the given identifier
+// storeOTP generates a new OTP and stores it in Redis with an expiry
 func (s *RegistrationService) storeOTP(ctx context.Context, identifier string) (string, error) {
-	// Generate OTP
+	// Step 1: Generate a random OTP (e.g., "123456")
 	otp, err := s.otpGenerator.Generate()
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrOTPGenerationFailed, err)
 	}
 
-	// Store OTP with the service-defined key
+	// Step 2: Create a Redis key like "otp:user@example.com"
 	key := s.getOTPKey(identifier)
+
+	// Step 3: Store the OTP in Redis with an expiry time (e.g., 5 minutes)
 	if err := s.otpRepo.StoreOTP(ctx, key, otp, s.otpExpiryTime); err != nil {
 		return "", fmt.Errorf("failed to store OTP: %w", err)
 	}
@@ -87,22 +89,22 @@ func (s *RegistrationService) storeOTP(ctx context.Context, identifier string) (
 func (s *RegistrationService) validateOTP(ctx context.Context, identifier, inputOTP string) (bool, error) {
 	key := s.getOTPKey(identifier)
 
-	// Get the stored OTP
+	// Step 1: Retrieve the stored OTP from Redis
 	storedOTP, err := s.otpRepo.GetOTP(ctx, key)
 	if err != nil {
-		// Handle Redis Nil error specifically
+		// If key doesn't exist in Redis (OTP expired), return invalid
 		if err == redis.Nil {
 			return false, ErrInvalidOTP
 		}
 		return false, fmt.Errorf("failed to retrieve OTP: %w", err)
 	}
 
-	// Compare OTPs
+	// Step 2: Compare the retrieved OTP with the user input
 	if storedOTP != inputOTP {
 		return false, nil
 	}
 
-	// Delete the OTP after successful validation
+	// Step 3: Delete the OTP after successful validation (one-time use)
 	if err := s.otpRepo.DeleteOTP(ctx, key); err != nil {
 		// Log the error but don't fail the validation
 		s.logger.Error("Failed to delete OTP after validation", "key", key, "error", err)
@@ -113,7 +115,7 @@ func (s *RegistrationService) validateOTP(ctx context.Context, identifier, input
 
 // RegisterUser handles the registration process
 func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Registration) error {
-	// Validate input data
+	// Step 1: Validate email, phone, and password formats
 	if !validation.ValidateEmail(reg.Email) {
 		return fmt.Errorf("%w: invalid email format", ErrInvalidInput)
 	}
@@ -126,7 +128,7 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 		return fmt.Errorf("%w: password does not meet requirements", ErrInvalidInput)
 	}
 
-	// Check if email is already registered
+	// Step 2: Check if email already exists in the "users" table
 	existsEmail, err := s.registrationRepo.IsRegistered(ctx, "email", reg.Email)
 	if err != nil {
 		return fmt.Errorf("failed to check email: %w", err)
@@ -135,7 +137,7 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 		return ErrEmailAlreadyExists
 	}
 
-	// Check if phone is already registered
+	// Step 3: Check if phone already exists in the "users" table
 	existsPhone, err := s.registrationRepo.IsRegistered(ctx, "phone", reg.Phone)
 	if err != nil {
 		return fmt.Errorf("failed to check phone: %w", err)
@@ -144,7 +146,7 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 		return ErrPhoneAlreadyExists
 	}
 
-	// Check if there's a pending registration with this email
+	// Step 4: Clean up old pending registrations using same email
 	pendingEmail, err := s.registrationRepo.GetPendingRegistration(ctx, "email", reg.Email)
 	if err != nil {
 		return fmt.Errorf("failed to check pending registration: %w", err)
@@ -157,7 +159,7 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 		}
 	}
 
-	// Check if there's a pending registration with this phone
+	// Step 4: Clean up old pending registrations using same phone
 	pendingPhone, err := s.registrationRepo.GetPendingRegistration(ctx, "phone", reg.Phone)
 	if err != nil {
 		return fmt.Errorf("failed to check pending registration: %w", err)
@@ -170,16 +172,16 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 		}
 	}
 
-	// Hash password
+	// Step 5: Hash the user's password before storing
 	hashedPassword, err := encryption.HashPassword(reg.Password)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Set the current time using Indian Standard Time
+	// Step 6: Set registration timestamps using Indian Standard Time
 	now := indianstandardtime.Now()
 
-	// Create pending registration
+	// Step 7: Create a new pending registration entry
 	pendingReg := &models.PendingRegistration{
 		Email:        reg.Email,
 		Phone:        reg.Phone,
@@ -188,18 +190,18 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 		ExpiresAt:    now.Add(1 * time.Hour), // 1 hour TTL
 	}
 
-	// Store pending registration
+	// Step 8: Store pending registration in DB
 	if err := s.registrationRepo.CreatePendingRegistration(ctx, pendingReg); err != nil {
 		return fmt.Errorf("%w: %v", ErrRegistrationFailed, err)
 	}
 
-	// Generate and store OTP
+	// Step 9: Generate and store OTP for the email
 	otp, err := s.storeOTP(ctx, reg.Email)
 	if err != nil {
 		return err
 	}
 
-	// Send OTP via email
+	// Step 10: Send OTP to user via email
 	if err := s.emailClient.SendOTPEmail(reg.Email, otp); err != nil {
 		return fmt.Errorf("failed to send OTP email: %w", err)
 	}
@@ -209,13 +211,13 @@ func (s *RegistrationService) RegisterUser(ctx context.Context, reg *models.Regi
 
 // VerifyRegistration verifies a user's email with OTP
 func (s *RegistrationService) VerifyRegistration(ctx context.Context, email, otp string) error {
-	// Validate email format
+	// Step 1: Validate email format
 	if !validation.ValidateEmail(email) {
 		s.logger.Debug("Invalid email format", "email", email)
 		return fmt.Errorf("%w: invalid email format", ErrInvalidInput)
 	}
 
-	// Get pending registration
+	// Step 2: Retrieve pending registration from DB using email
 	pendingReg, err := s.registrationRepo.GetPendingRegistration(ctx, "email", email)
 	if err != nil {
 		s.logger.Error("Failed to get pending registration", "email", email, "error", err)
@@ -227,7 +229,7 @@ func (s *RegistrationService) VerifyRegistration(ctx context.Context, email, otp
 		return fmt.Errorf("no pending registration found for email: %s", email)
 	}
 
-	// Verify OTP using our service method
+	// Step 3: Validate OTP using stored value
 	valid, err := s.validateOTP(ctx, email, otp)
 	if err != nil {
 		s.logger.Error("OTP validation error", "email", email, "error", err)
@@ -241,7 +243,7 @@ func (s *RegistrationService) VerifyRegistration(ctx context.Context, email, otp
 
 	s.logger.Info("OTP verified successfully", "email", email)
 
-	// Create new user from pending registration
+	// Step 4: Create a fully verified "user" entry from pending registration
 	user := &models.User{
 		Email:        pendingReg.Email,
 		Phone:        pendingReg.Phone,
@@ -251,7 +253,7 @@ func (s *RegistrationService) VerifyRegistration(ctx context.Context, email, otp
 		UpdatedAt:    indianstandardtime.Now(),
 	}
 
-	// Create user in database
+	// Step 5: Store the verified user data in the DB (in "users" table)
 	if err := s.registrationRepo.CreateUser(ctx, user); err != nil {
 		s.logger.Error("Failed to create user", "email", email, "error", err)
 		return fmt.Errorf("%w: %v", ErrVerificationFailed, err)
@@ -259,10 +261,10 @@ func (s *RegistrationService) VerifyRegistration(ctx context.Context, email, otp
 
 	s.logger.Info("User created successfully", "email", email, "id", user.ID)
 
-	// Delete pending registration
+	// Step 6: Clean up the pending registration
 	if err := s.registrationRepo.DeletePendingRegistration(ctx, pendingReg.ID); err != nil {
 		s.logger.Error("Failed to delete pending registration", "id", pendingReg.ID, "error", err)
-		// We continue despite this error since user is already created
+		// User is already created, so we don’t stop the flow
 	} else {
 		s.logger.Debug("Pending registration deleted", "id", pendingReg.ID)
 	}

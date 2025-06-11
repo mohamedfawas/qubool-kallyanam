@@ -334,6 +334,259 @@ func (c *Client) GetPartnerPreferences(ctx context.Context, userID string) (bool
 	return resp.Success, resp.Message, resp.Preferences, nil
 }
 
+// GetRecommendedMatches gets recommended profiles for the user
+func (c *Client) GetRecommendedMatches(ctx context.Context, userID string, limit, offset int) (bool, string, []*userpb.RecommendedProfileData, *userpb.PaginationData, error) {
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.GetRecommendedMatchesRequest{
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	}
+
+	resp, err := c.client.GetRecommendedMatches(ctx, req)
+	if err != nil {
+		return false, "", nil, nil, err
+	}
+
+	return resp.Success, resp.Message, resp.Profiles, resp.Pagination, nil
+}
+
+// RecordMatchAction records a user's action on a potential match
+// RecordMatchAction records a user's action on a potential match
+func (c *Client) RecordMatchAction(ctx context.Context, userID string, profileID uint64, action string) (bool, string, bool, error) {
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.RecordMatchActionRequest{
+		ProfileId: profileID, // Changed from TargetUserId
+		Action:    action,
+	}
+
+	resp, err := c.client.RecordMatchAction(ctx, req)
+	if err != nil {
+		return false, "", false, err
+	}
+
+	return resp.Success, resp.Message, resp.IsMutualMatch, nil
+}
+
+// GetMatchHistory gets user's match history
+func (c *Client) GetMatchHistory(ctx context.Context, userID string, status string, limit, offset int) (bool, string, []*userpb.MatchHistoryItem, *userpb.PaginationData, error) {
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.GetMatchHistoryRequest{
+		Status: status,
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	}
+
+	resp, err := c.client.GetMatchHistory(ctx, req)
+	if err != nil {
+		return false, "", nil, nil, err
+	}
+
+	return resp.Success, resp.Message, resp.Matches, resp.Pagination, nil
+}
+
+// UpdateMatchAction updates a user's previous action on a potential match
+func (c *Client) UpdateMatchAction(ctx context.Context, userID string, profileID uint64, action string) (bool, string, bool, bool, error) {
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.UpdateMatchActionRequest{
+		ProfileId: profileID,
+		Action:    action,
+	}
+
+	resp, err := c.client.UpdateMatchAction(ctx, req)
+	if err != nil {
+		return false, "", false, false, err
+	}
+
+	return resp.Success, resp.Message, resp.IsMutualMatch, resp.WasMutualMatchBroken, nil
+}
+
+func (c *Client) GetMutualMatches(ctx context.Context, userID string, limit, offset int) (bool, string, []*userpb.MutualMatchData, *userpb.PaginationData, error) {
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.GetMutualMatchesRequest{
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	}
+
+	resp, err := c.client.GetMutualMatches(ctx, req)
+	if err != nil {
+		return false, "", nil, nil, err
+	}
+
+	return resp.Success, resp.Message, resp.Matches, resp.Pagination, nil
+}
+
+// ResolveUserID resolves public ID to UUID
+func (c *Client) ResolveUserID(ctx context.Context, publicID uint64) (string, error) {
+	req := &userpb.GetProfileByIDRequest{
+		ProfileId: publicID,
+	}
+
+	resp, err := c.client.GetProfileByID(ctx, req)
+	if err != nil {
+		return "", err
+	}
+
+	if !resp.Success {
+		return "", fmt.Errorf("user not found: %s", resp.Message)
+	}
+
+	return resp.UserUuid, nil
+}
+
+// GetBasicProfile gets basic user profile information
+func (c *Client) GetBasicProfile(ctx context.Context, userUUID string) (*userpb.BasicProfileData, error) {
+	req := &userpb.GetBasicProfileRequest{
+		UserUuid: userUUID,
+	}
+
+	resp, err := c.client.GetBasicProfile(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Success {
+		return nil, fmt.Errorf("failed to get profile: %s", resp.Message)
+	}
+
+	return resp.Profile, nil
+}
+
+// UploadUserPhoto uploads an additional photo for a user
+func (c *Client) UploadUserPhoto(ctx context.Context, userID string, photoData []byte, fileName string, contentType string, displayOrder int) (bool, string, string, error) {
+	// Create metadata with user ID
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.UploadUserPhotoRequest{
+		PhotoData:    photoData,
+		FileName:     fileName,
+		ContentType:  contentType,
+		DisplayOrder: int32(displayOrder),
+	}
+
+	resp, err := c.client.UploadUserPhoto(ctx, req)
+	if err != nil {
+		return false, "", "", err
+	}
+
+	return resp.Success, resp.Message, resp.PhotoUrl, nil
+}
+
+// GetUserPhotos retrieves all photos for a user
+func (c *Client) GetUserPhotos(ctx context.Context, userID string) (bool, string, []*userpb.UserPhotoData, error) {
+	// Create metadata with user ID
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.GetUserPhotosRequest{}
+	resp, err := c.client.GetUserPhotos(ctx, req)
+	if err != nil {
+		return false, "", nil, err
+	}
+
+	return resp.Success, resp.Message, resp.Photos, nil
+}
+
+// DeleteUserPhoto deletes a specific user photo
+func (c *Client) DeleteUserPhoto(ctx context.Context, userID string, displayOrder int) (bool, string, error) {
+	// Create metadata with user ID
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.DeleteUserPhotoRequest{
+		DisplayOrder: int32(displayOrder),
+	}
+
+	resp, err := c.client.DeleteUserPhoto(ctx, req)
+	if err != nil {
+		return false, "", err
+	}
+
+	return resp.Success, resp.Message, nil
+}
+
+// UploadUserVideo uploads an introduction video for a user
+func (c *Client) UploadUserVideo(ctx context.Context, userID string, videoData []byte, fileName string, contentType string) (bool, string, string, error) {
+	// Create metadata with user ID
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.UploadUserVideoRequest{
+		VideoData:   videoData,
+		FileName:    fileName,
+		ContentType: contentType,
+	}
+
+	resp, err := c.client.UploadUserVideo(ctx, req)
+	if err != nil {
+		return false, "", "", err
+	}
+
+	return resp.Success, resp.Message, resp.VideoUrl, nil
+}
+
+// GetUserVideo retrieves the video for a user
+func (c *Client) GetUserVideo(ctx context.Context, userID string) (bool, string, *userpb.UserVideoData, error) {
+	// Create metadata with user ID
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.GetUserVideoRequest{}
+	resp, err := c.client.GetUserVideo(ctx, req)
+	if err != nil {
+		return false, "", nil, err
+	}
+
+	return resp.Success, resp.Message, resp.Video, nil
+}
+
+// DeleteUserVideo deletes the user's introduction video
+func (c *Client) DeleteUserVideo(ctx context.Context, userID string) (bool, string, error) {
+	// Create metadata with user ID
+	md := metadata.New(map[string]string{
+		"user-id": userID,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	req := &userpb.DeleteUserVideoRequest{}
+	resp, err := c.client.DeleteUserVideo(ctx, req)
+	if err != nil {
+		return false, "", err
+	}
+
+	return resp.Success, resp.Message, nil
+}
+
 func (c *Client) Close() error {
 	return c.conn.Close()
 }

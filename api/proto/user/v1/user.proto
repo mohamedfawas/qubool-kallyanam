@@ -8,28 +8,28 @@ import "google/protobuf/wrappers.proto";
 option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/proto/user/v1;userpb";
 
 service UserService {
-  // UpdateProfile updates user profile information
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
-
-  // PatchProfile partially updates user profile information
   rpc PatchProfile(PatchProfileRequest) returns (UpdateProfileResponse);
-
-  // UploadProfilePhoto uploads a profile photo for a user
   rpc UploadProfilePhoto(UploadProfilePhotoRequest) returns (UploadProfilePhotoResponse);
-
-  // DeleteProfilePhoto deletes the profile photo of a user
   rpc DeleteProfilePhoto(DeleteProfilePhotoRequest) returns (DeleteProfilePhotoResponse);
-
-  // GetProfile retrieves user profile information
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
-
-   // UpdatePartnerPreferences updates a user's partner preferences
-   rpc UpdatePartnerPreferences(UpdatePartnerPreferencesRequest) returns (UpdatePartnerPreferencesResponse);
-
-   rpc PatchPartnerPreferences(PatchPartnerPreferencesRequest) returns (UpdatePartnerPreferencesResponse);
-
-   rpc GetPartnerPreferences(GetPartnerPreferencesRequest) returns (GetPartnerPreferencesResponse);
-  }
+  rpc UpdatePartnerPreferences(UpdatePartnerPreferencesRequest) returns (UpdatePartnerPreferencesResponse);
+  rpc PatchPartnerPreferences(PatchPartnerPreferencesRequest) returns (UpdatePartnerPreferencesResponse);
+  rpc GetPartnerPreferences(GetPartnerPreferencesRequest) returns (GetPartnerPreferencesResponse);
+  rpc GetRecommendedMatches(GetRecommendedMatchesRequest) returns (GetRecommendedMatchesResponse);
+  rpc RecordMatchAction(RecordMatchActionRequest) returns (RecordMatchActionResponse);
+  rpc UpdateMatchAction(UpdateMatchActionRequest) returns (UpdateMatchActionResponse);
+  rpc GetMatchHistory(GetMatchHistoryRequest) returns (GetMatchHistoryResponse);
+  rpc GetMutualMatches(GetMutualMatchesRequest) returns (GetMutualMatchesResponse);
+  rpc GetProfileByID(GetProfileByIDRequest) returns (GetProfileByIDResponse);
+  rpc GetBasicProfile(GetBasicProfileRequest) returns (GetBasicProfileResponse);
+  rpc UploadUserPhoto(UploadUserPhotoRequest) returns (UploadUserPhotoResponse);
+  rpc GetUserPhotos(GetUserPhotosRequest) returns (GetUserPhotosResponse);
+  rpc DeleteUserPhoto(DeleteUserPhotoRequest) returns (DeleteUserPhotoResponse);
+  rpc UploadUserVideo(UploadUserVideoRequest) returns (UploadUserVideoResponse);
+  rpc GetUserVideo(GetUserVideoRequest) returns (GetUserVideoResponse);
+  rpc DeleteUserVideo(DeleteUserVideoRequest) returns (DeleteUserVideoResponse);
+}
 
 message UpdateProfileRequest {
   bool is_bride = 1;
@@ -185,4 +185,242 @@ message GetPartnerPreferencesResponse {
   string message = 2;
   string error = 3;
   PartnerPreferencesData preferences = 4;
+}
+
+message GetRecommendedMatchesRequest {
+  int32 limit = 1;  // Number of profiles to return (default 10, max 50)
+  int32 offset = 2; // Pagination offset (default 0)
+}
+
+message GetRecommendedMatchesResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  repeated RecommendedProfileData profiles = 4;
+  PaginationData pagination = 5;
+}
+
+message RecommendedProfileData {
+  uint64 profile_id = 1; 
+  string full_name = 2;
+  int32 age = 3;
+  int32 height_cm = 4;
+  bool physically_challenged = 5;
+  string community = 6;
+  string marital_status = 7;
+  string profession = 8;
+  string profession_type = 9;
+  string highest_education_level = 10;
+  string home_district = 11;
+  string profile_picture_url = 12;
+  google.protobuf.Timestamp last_login = 13;
+  repeated string match_reasons = 14;
+}
+
+message PaginationData {
+  int32 total = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  bool has_more = 4;
+}
+
+message RecordMatchActionRequest {
+  uint64 profile_id = 1;  // Changed from string target_user_id
+  string action = 2;      // "liked", "disliked", or "passed"
+}
+
+message RecordMatchActionResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  bool is_mutual_match = 4;
+}
+
+message GetMatchHistoryRequest {
+  string status = 1;    // Optional: "liked", "disliked", "passed", or empty for all
+  int32 limit = 2;      // Number of results (default 20, max 50)
+  int32 offset = 3;     // Pagination offset (default 0)
+}
+
+message GetMatchHistoryResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  repeated MatchHistoryItem matches = 4;
+  PaginationData pagination = 5;
+}
+
+message MatchHistoryItem {
+  uint64 profile_id = 1;
+  string full_name = 2;
+  int32 age = 3;
+  int32 height_cm = 4;
+  bool physically_challenged = 5;
+  string community = 6;
+  string marital_status = 7;
+  string profession = 8;
+  string profession_type = 9;
+  string highest_education_level = 10;
+  string home_district = 11;
+  string profile_picture_url = 12;
+  string action = 13;                           // "liked", "disliked", "passed"
+  google.protobuf.Timestamp action_date = 14;   // When the action was taken
+}
+
+message UpdateMatchActionRequest {
+  uint64 profile_id = 1;  // Profile ID to update action for
+  string action = 2;      // New action: "liked", "disliked", or "passed"
+}
+
+message UpdateMatchActionResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  bool is_mutual_match = 4;
+  bool was_mutual_match_broken = 5;  // True if this update broke an existing mutual match
+}
+
+message GetMutualMatchesRequest {
+  int32 limit = 1;  // Number of mutual matches to return (default 20, max 50)
+  int32 offset = 2; // Pagination offset (default 0)
+}
+
+message GetMutualMatchesResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  repeated MutualMatchData matches = 4;
+  PaginationData pagination = 5;
+}
+
+message MutualMatchData {
+  uint64 profile_id = 1;
+  string full_name = 2;
+  int32 age = 3;
+  int32 height_cm = 4;
+  bool physically_challenged = 5;
+  string community = 6;
+  string marital_status = 7;
+  string profession = 8;
+  string profession_type = 9;
+  string highest_education_level = 10;
+  string home_district = 11;
+  string profile_picture_url = 12;
+  google.protobuf.Timestamp last_login = 13;
+  google.protobuf.Timestamp matched_at = 14;  // When the mutual match was created
+}
+
+// New messages for chat integration
+message GetProfileByIDRequest {
+  uint64 profile_id = 1; // Public profile ID
+}
+
+message GetProfileByIDResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  string user_uuid = 4; // UUID corresponding to the profile ID
+}
+
+message GetBasicProfileRequest {
+  string user_uuid = 1; // User UUID
+}
+
+message BasicProfileData {
+  uint64 id = 1;                   // Public profile ID
+  string full_name = 2;            // User's full name
+  string profile_picture_url = 3;  // Profile picture URL (optional)
+  bool is_active = 4;              // Whether user is active
+}
+
+message GetBasicProfileResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  BasicProfileData profile = 4;
+}
+
+message UploadUserPhotoRequest {
+  bytes photo_data = 1;
+  string file_name = 2;
+  string content_type = 3;
+  int32 display_order = 4; // 1, 2, or 3
+}
+
+message UploadUserPhotoResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  string photo_url = 4;
+}
+
+message GetUserPhotosRequest {
+  // No fields needed as user ID will be extracted from auth context
+}
+
+message UserPhotoData {
+  string photo_url = 1;
+  int32 display_order = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message GetUserPhotosResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  repeated UserPhotoData photos = 4;
+}
+
+message DeleteUserPhotoRequest {
+  int32 display_order = 1;
+}
+
+message DeleteUserPhotoResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+
+// Video messages
+message UploadUserVideoRequest {
+  bytes video_data = 1;
+  string file_name = 2;
+  string content_type = 3;
+}
+
+message UploadUserVideoResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  string video_url = 4;
+}
+
+message GetUserVideoRequest {
+  // No fields needed as user ID will be extracted from auth context
+}
+
+message UserVideoData {
+  string video_url = 1;
+  string file_name = 2;
+  int64 file_size = 3;
+  int32 duration_seconds = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message GetUserVideoResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  UserVideoData video = 4;
+}
+
+message DeleteUserVideoRequest {
+  // No fields needed as user ID will be extracted from auth context
+}
+
+message DeleteUserVideoResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
 }

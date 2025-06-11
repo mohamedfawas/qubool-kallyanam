@@ -1,4 +1,3 @@
-// File: auth/internal/domain/repositories/otp_repository.go
 package repositories
 
 import (

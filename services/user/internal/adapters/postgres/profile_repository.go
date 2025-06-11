@@ -34,7 +34,7 @@ func (r *ProfileRepo) CreateProfile(ctx context.Context, profile *models.UserPro
 // GetProfileByUserID retrieves a profile by user ID
 func (r *ProfileRepo) GetProfileByUserID(ctx context.Context, userID uuid.UUID) (*models.UserProfile, error) {
 	var profile models.UserProfile
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&profile).Error
+	err := r.db.WithContext(ctx).Where("user_id = ? AND is_deleted = ?", userID, false).First(&profile).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil // Return nil when not found
@@ -56,7 +56,7 @@ func (r *ProfileRepo) UpdateLastLogin(ctx context.Context, userID uuid.UUID, las
 func (r *ProfileRepo) ProfileExists(ctx context.Context, userID uuid.UUID) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&models.UserProfile{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND is_deleted = ?", userID, false).
 		Count(&count).
 		Error
 	return count > 0, err
@@ -152,7 +152,7 @@ func (r *ProfileRepo) PatchProfile(ctx context.Context, userID uuid.UUID, update
 func (r *ProfileRepo) GetPartnerPreferences(ctx context.Context, userProfileID uint) (*models.PartnerPreferences, error) {
 	// Instead of directly loading into PartnerPreferences, use the WithArrays struct
 	var prefsWithArrays models.PartnerPreferencesWithArrays
-	err := r.db.WithContext(ctx).Where("user_profile_id = ?", userProfileID).First(&prefsWithArrays).Error
+	err := r.db.WithContext(ctx).Where("user_profile_id = ? AND is_deleted = ?", userProfileID, false).First(&prefsWithArrays).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -318,4 +318,184 @@ func (r *ProfileRepo) UpdatePartnerPreferences(ctx context.Context, prefs *model
 	}
 
 	return tx.Commit().Error
+}
+
+func (r *ProfileRepo) GetProfileByID(ctx context.Context, id uint) (*models.UserProfile, error) {
+	var profile models.UserProfile
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&profile).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &profile, nil
+}
+
+func (r *ProfileRepo) SoftDeleteUserProfile(ctx context.Context, userID uuid.UUID) error {
+	now := indianstandardtime.Now()
+	result := r.db.WithContext(ctx).Model(&models.UserProfile{}).
+		Where("user_id = ? AND is_deleted = ?", userID, false).
+		Updates(map[string]interface{}{
+			"is_deleted": true,
+			"deleted_at": now,
+			"updated_at": now,
+		})
+
+	return result.Error
+}
+
+func (r *ProfileRepo) SoftDeletePartnerPreferences(ctx context.Context, profileID uint) error {
+	now := indianstandardtime.Now()
+	result := r.db.WithContext(ctx).Model(&models.PartnerPreferences{}).
+		Where("user_profile_id = ? AND is_deleted = ?", profileID, false).
+		Updates(map[string]interface{}{
+			"is_deleted": true,
+			"deleted_at": now,
+			"updated_at": now,
+		})
+
+	return result.Error
+}
+
+// GetUserUUIDByProfileID resolves a public profile ID to user UUID
+func (r *ProfileRepo) GetUserUUIDByProfileID(ctx context.Context, profileID uint64) (uuid.UUID, error) {
+	var profile models.UserProfile
+	err := r.db.WithContext(ctx).
+		Select("user_id").
+		Where("id = ? AND is_deleted = ?", profileID, false).
+		First(&profile).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return uuid.Nil, err
+		}
+		return uuid.Nil, err
+	}
+
+	return profile.UserID, nil
+}
+
+// GetBasicProfileByUUID gets basic profile information by user UUID
+func (r *ProfileRepo) GetBasicProfileByUUID(ctx context.Context, userUUID uuid.UUID) (*models.UserProfile, error) {
+	var profile models.UserProfile
+	err := r.db.WithContext(ctx).
+		Select("id, full_name, profile_picture_url, is_deleted").
+		Where("user_id = ? AND is_deleted = ?", userUUID, false).
+		First(&profile).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, err
+		}
+		return nil, err
+	}
+
+	return &profile, nil
+}
+
+func (r *ProfileRepo) UpdateEmail(ctx context.Context, userID uuid.UUID, email string) error {
+	result := r.db.WithContext(ctx).Model(&models.UserProfile{}).
+		Where("user_id = ?", userID).
+		Updates(map[string]interface{}{
+			"email":      email,
+			"updated_at": time.Now(),
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
+
+// CreateUserPhoto creates a new user photo record
+func (r *ProfileRepo) CreateUserPhoto(ctx context.Context, photo *models.UserPhoto) error {
+	return r.db.WithContext(ctx).Create(photo).Error
+}
+
+// GetUserPhotos retrieves all photos for a user, ordered by display_order
+func (r *ProfileRepo) GetUserPhotos(ctx context.Context, userID uuid.UUID) ([]*models.UserPhoto, error) {
+	var photos []*models.UserPhoto
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("display_order ASC").
+		Find(&photos).Error
+	return photos, err
+}
+
+// DeleteUserPhoto hard deletes a user photo
+func (r *ProfileRepo) DeleteUserPhoto(ctx context.Context, userID uuid.UUID, displayOrder int) error {
+	result := r.db.WithContext(ctx).
+		Where("user_id = ? AND display_order = ?", userID, displayOrder).
+		Delete(&models.UserPhoto{})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
+
+// CountUserPhotos counts the number of photos for a user
+func (r *ProfileRepo) CountUserPhotos(ctx context.Context, userID uuid.UUID) (int, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&models.UserPhoto{}).
+		Where("user_id = ?", userID).
+		Count(&count).Error
+	return int(count), err
+}
+
+// CreateUserVideo creates a new user video record
+func (r *ProfileRepo) CreateUserVideo(ctx context.Context, video *models.UserVideo) error {
+	return r.db.WithContext(ctx).Create(video).Error
+}
+
+// GetUserVideo retrieves the video for a user
+func (r *ProfileRepo) GetUserVideo(ctx context.Context, userID uuid.UUID) (*models.UserVideo, error) {
+	var video models.UserVideo
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		First(&video).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &video, nil
+}
+
+// DeleteUserVideo hard deletes a user video
+func (r *ProfileRepo) DeleteUserVideo(ctx context.Context, userID uuid.UUID) error {
+	result := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Delete(&models.UserVideo{})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
+
+// HasUserVideo checks if user has a video
+func (r *ProfileRepo) HasUserVideo(ctx context.Context, userID uuid.UUID) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&models.UserVideo{}).
+		Where("user_id = ?", userID).
+		Count(&count).Error
+	return count > 0, err
 }

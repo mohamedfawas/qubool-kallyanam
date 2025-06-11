@@ -1,4 +1,3 @@
-// File: internal/domain/repositories/token_repository.go
 package repositories
 
 import (

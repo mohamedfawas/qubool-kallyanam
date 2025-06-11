@@ -29,3 +29,11 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 	}
 	return nil
 }
+
+// IsPremium checks if user has active premium subscription
+func (u *User) IsPremium() bool {
+	if u.PremiumUntil == nil {
+		return false
+	}
+	return time.Now().Before(*u.PremiumUntil)
+}

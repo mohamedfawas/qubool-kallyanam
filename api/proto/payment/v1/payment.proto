@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package payment.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/proto/payment/v1;paymentpb";
+
+service PaymentService {
+  // Create a payment order for subscription
+  rpc CreatePaymentOrder(CreatePaymentOrderRequest) returns (CreatePaymentOrderResponse);
+  
+  // Verify payment and activate subscription
+  rpc VerifyPayment(VerifyPaymentRequest) returns (VerifyPaymentResponse);
+  
+  // Get subscription status
+  rpc GetSubscriptionStatus(GetSubscriptionStatusRequest) returns (GetSubscriptionStatusResponse);
+  
+  // Get payment history
+  rpc GetPaymentHistory(GetPaymentHistoryRequest) returns (GetPaymentHistoryResponse);
+
+   // Add webhook support
+   rpc HandleWebhook(WebhookRequest) returns (WebhookResponse);
+  
+   // Add simple redirect-based payment
+   rpc CreatePaymentURL(CreatePaymentURLRequest) returns (CreatePaymentURLResponse);
+}
+
+message CreatePaymentOrderRequest {
+  string plan_id = 1; // e.g., "premium_365"
+}
+
+message CreatePaymentOrderResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  PaymentOrderData order_data = 4;
+}
+
+message PaymentOrderData {
+  string razorpay_order_id = 1;
+  string razorpay_key_id = 2;
+  int64 amount = 3; // in paise
+  string currency = 4;
+  string plan_name = 5;
+}
+
+message VerifyPaymentRequest {
+  string razorpay_order_id = 1;
+  string razorpay_payment_id = 2;
+  string razorpay_signature = 3;
+}
+
+message VerifyPaymentResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  SubscriptionData subscription = 4;
+}
+
+message GetSubscriptionStatusRequest {
+  // User ID will come from metadata
+}
+
+message GetSubscriptionStatusResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  SubscriptionData subscription = 4;
+}
+
+message SubscriptionData {
+  string id = 1;
+  string plan_id = 2;
+  string status = 3;
+  google.protobuf.Timestamp start_date = 4;
+  google.protobuf.Timestamp end_date = 5;
+  double amount = 6;
+  string currency = 7;
+  bool is_active = 8;
+}
+
+message GetPaymentHistoryRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message GetPaymentHistoryResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  repeated PaymentData payments = 4;
+  PaginationData pagination = 5;
+}
+
+message PaymentData {
+  string id = 1;
+  string razorpay_order_id = 2;
+  string razorpay_payment_id = 3;
+  double amount = 4;
+  string currency = 5;
+  string status = 6;
+  string payment_method = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message PaginationData {
+  int32 limit = 1;
+  int32 offset = 2;
+  int32 total = 3;
+  bool has_more = 4;
+}
+
+
+message WebhookRequest {
+  string event = 1;
+  string payload = 2;
+  string signature = 3;
+}
+
+message WebhookResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message CreatePaymentURLRequest {
+  string plan_id = 1;
+}
+
+message CreatePaymentURLResponse {
+  bool success = 1;
+  string message = 2;
+  string payment_url = 3;
+}

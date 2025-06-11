@@ -107,6 +107,7 @@ type UserProfile struct {
 	IsBride               bool           `gorm:"not null;default:false;column:is_bride"`
 	FullName              string         `gorm:"size:200;column:full_name"`
 	Phone                 string         `gorm:"size:20;column:phone"`
+	Email                 string         `gorm:"size:255;column:email"`
 	DateOfBirth           *time.Time     `gorm:"type:date;column:date_of_birth"`
 	HeightCM              *int           `gorm:"column:height_cm;check:height_cm>=130 AND height_cm<=220"`
 	PhysicallyChallenged  bool           `gorm:"not null;default:false;column:physically_challenged"`
