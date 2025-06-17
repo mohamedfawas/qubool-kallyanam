@@ -25,6 +25,7 @@ func SetupRouter(
 	// Global middleware
 	r.Use(
 		gin.Recovery(),                   // recover from panics
+		middleware.ResponseTiming(),      // add response time headers
 		middleware.SetupCORS(),           // CORS support for Razorpay
 		middleware.SecurityHeaders(),     // Security headers
 		middleware.RequestLogger(logger), // request logging
@@ -100,6 +101,7 @@ func registerUserRoutes(rg *gin.RouterGroup, h *userHandler.Handler, auth *middl
 		rg.PATCH("/matches/action", h.UpdateMatchAction)
 		rg.GET("/matches/history", h.GetMatchHistory)
 		rg.GET("/matches/mutual", h.GetMutualMatches)
+		rg.GET("/profile/:id", h.GetDetailedProfile)
 	}
 }
 
@@ -125,9 +127,11 @@ func registerChatRoutes(rg *gin.RouterGroup, h *chatHandler.Handler, auth *middl
 }
 
 func registerPaymentRoutes(rg *gin.RouterGroup, h *paymentHandler.Handler, auth *middleware.Auth) {
-	// API routes
+	// Public status endpoint
 	rg.GET("/status", h.PaymentStatus)
+	rg.GET("/verify", h.VerifyPaymentQuery)
 
+	// Protected API endpoints
 	protected := rg.Group("/")
 	protected.Use(
 		auth.Authenticate(),
@@ -138,15 +142,10 @@ func registerPaymentRoutes(rg *gin.RouterGroup, h *paymentHandler.Handler, auth 
 		protected.POST("/verify", h.VerifyPayment)
 		protected.GET("/subscription", h.GetSubscription)
 		protected.GET("/history", h.GetPaymentHistory)
-
-		// HTML routes
-		protected.GET("/plans", h.ShowPlans)
-		protected.GET("/premium", h.ShowPaymentPage)
 	}
 
-	// Public HTML routes (no auth required)
-	rg.GET("/success", h.ShowSuccessPage)
-	rg.GET("/failed", h.ShowFailedPage)
+	// UI page redirects (delegate to payment service)
+	rg.GET("/plans", h.RedirectToPlans)
 }
 
 // healthHandler handles the health check endpoint.

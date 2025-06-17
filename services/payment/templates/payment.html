@@ -6,7 +6,6 @@
     <title>Secure Payment - Qubool Kallyanam</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -16,7 +15,6 @@
             justify-content: center;
             padding: 20px;
         }
-        
         .payment-card {
             background: white;
             border-radius: 20px;
@@ -26,20 +24,17 @@
             width: 100%;
             text-align: center;
         }
-        
         .logo {
             font-size: 24px;
             font-weight: 600;
             color: #2d3748;
             margin-bottom: 10px;
         }
-        
         .subtitle {
             color: #718096;
             margin-bottom: 30px;
             font-size: 14px;
         }
-        
         .plan-info {
             background: #f7fafc;
             border-radius: 15px;
@@ -47,26 +42,22 @@
             margin-bottom: 30px;
             border: 1px solid #e2e8f0;
         }
-        
         .plan-name {
             font-size: 18px;
             font-weight: 600;
             color: #2d3748;
             margin-bottom: 8px;
         }
-        
         .plan-amount {
             font-size: 36px;
             font-weight: 700;
             color: #667eea;
             margin-bottom: 5px;
         }
-        
         .plan-duration {
             color: #718096;
             font-size: 14px;
         }
-        
         .pay-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -80,18 +71,10 @@
             transition: all 0.3s ease;
             margin-bottom: 20px;
         }
-        
         .pay-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
         }
-        
-        .pay-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
         .security-badge {
             background: #e6fffa;
             color: #234e52;
@@ -100,12 +83,10 @@
             font-size: 13px;
             border: 1px solid #b2f5ea;
         }
-        
         .loading {
             display: none;
             padding: 20px;
         }
-        
         .spinner {
             border: 3px solid #f3f3f3;
             border-top: 3px solid #667eea;
@@ -115,25 +96,21 @@
             animation: spin 1s linear infinite;
             margin: 0 auto 10px;
         }
-        
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
         .alert {
             padding: 12px;
             border-radius: 8px;
             margin: 15px 0;
             display: none;
         }
-        
         .alert-error {
             background: #fed7d7;
             color: #c53030;
             border: 1px solid #feb2b2;
         }
-        
         .alert-success {
             background: #c6f6d5;
             color: #22543d;
@@ -147,8 +124,8 @@
         <div class="subtitle">Secure Payment Gateway</div>
         
         <div class="plan-info">
-            <div class="plan-name">Premium Membership</div>
-            <div class="plan-amount">₹1,000</div>
+            <div class="plan-name">{{.PlanName}}</div>
+            <div class="plan-amount">₹{{.DisplayAmount}}</div>
             <div class="plan-duration">Valid for 365 days</div>
         </div>
         
@@ -160,7 +137,7 @@
         </div>
         
         <button id="payBtn" class="pay-btn">
-            Pay ₹1,000 Securely
+            Pay ₹{{.DisplayAmount}} Securely
         </button>
         
         <div class="security-badge">
@@ -170,37 +147,27 @@
     
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script>
-        // Configuration from server-side (safer approach)
         const config = {
             keyId: '{{.RazorpayKeyID}}',
             orderId: '{{.RazorpayOrderID}}',
             amount: {{.Amount}},
             planName: '{{.PlanName}}',
-            userToken: '{{.Token}}',
-            userName: '{{.UserName}}',
-            userEmail: '{{.UserEmail}}'
+            gatewayUrl: '{{.GatewayURL}}'
         };
         
-        // Elements
         const payBtn = document.getElementById('payBtn');
         const loading = document.getElementById('loading');
         const alert = document.getElementById('alert');
         
-        // Utility functions
         function showAlert(message, type = 'error') {
             alert.className = `alert alert-${type}`;
             alert.textContent = message;
             alert.style.display = 'block';
         }
         
-        function hideAlert() {
-            alert.style.display = 'none';
-        }
-        
         function showLoading() {
             payBtn.style.display = 'none';
             loading.style.display = 'block';
-            hideAlert();
         }
         
         function hideLoading() {
@@ -208,119 +175,41 @@
             loading.style.display = 'none';
         }
         
-        // Razorpay payment handler
-        function initializePayment() {
-            const options = {
-                key: config.keyId,
-                amount: config.amount,
-                currency: 'INR',
-                name: 'Qubool Kallyanam',
-                description: config.planName,
-                order_id: config.orderId,
-                handler: function(response) {
-                    showLoading();
-                    verifyPayment(response);
-                },
-                prefill: {
-                    name: config.userName,
-                    email: config.userEmail
-                },
-                theme: {
-                    color: '#667eea'
-                },
-                modal: {
-                    ondismiss: function() {
-                        hideLoading();
-                        showAlert('Payment was cancelled. You can try again.');
-                    }
+        const rzp = new Razorpay({
+            key: config.keyId,
+            amount: config.amount,
+            currency: 'INR',
+            name: 'Qubool Kallyanam',
+            description: config.planName,
+            order_id: config.orderId,
+            handler: function(response) {
+                showLoading();
+                window.location.href = config.gatewayUrl + '/api/v1/payment/verify?' + 
+                    'razorpay_payment_id=' + response.razorpay_payment_id +
+                    '&razorpay_order_id=' + response.razorpay_order_id +
+                    '&razorpay_signature=' + response.razorpay_signature;
+            },
+            theme: { color: '#667eea' },
+            modal: {
+                ondismiss: function() {
+                    hideLoading();
+                    showAlert('Payment was cancelled. You can try again.');
                 }
-            };
-            
-            const rzp = new Razorpay(options);
-            
-            rzp.on('payment.failed', function(response) {
-                hideLoading();
-                showAlert(`Payment failed: ${response.error.description}`);
-                setTimeout(() => {
-                    window.location.href = `/api/v1/payment/failed?order_id=${config.orderId}&error=${response.error.code}`;
-                }, 3000);
-            });
-            
-            return rzp;
-        }
-        
-        // Payment verification
-        async function verifyPayment(response) {
-            try {
-                const result = await fetch('/api/v1/payment/verify', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${config.userToken}`
-                    },
-                    body: JSON.stringify({
-                        razorpay_payment_id: response.razorpay_payment_id,
-                        razorpay_order_id: response.razorpay_order_id,
-                        razorpay_signature: response.razorpay_signature
-                    })
-                });
-                
-                const data = await result.json();
-                
-                if (data.success) {
-                    showAlert('Payment successful! Redirecting...', 'success');
-                    setTimeout(() => {
-                        window.location.href = `/api/v1/payment/success?order_id=${response.razorpay_order_id}`;
-                    }, 2000);
-                } else {
-                    throw new Error(data.message || 'Verification failed');
-                }
-            } catch (error) {
-                hideLoading();
-                showAlert('Payment verification failed. Please contact support.');
-                setTimeout(() => {
-                    window.location.href = `/api/v1/payment/failed?order_id=${config.orderId}&error=verification_failed`;
-                }, 3000);
-            }
-        }
-        
-        // Initialize
-        let razorpay;
-        try {
-            razorpay = initializePayment();
-            console.log('Razorpay initialized successfully');
-        } catch (error) {
-            console.error('Razorpay initialization failed:', error);
-            showAlert('Payment gateway unavailable. Please try again later.');
-        }
-        
-        // Pay button click handler
-        payBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            hideAlert();
-            
-            if (!razorpay) {
-                showAlert('Payment gateway not available. Please refresh and try again.');
-                return;
-            }
-            
-            try {
-                razorpay.open();
-            } catch (error) {
-                console.error('Error opening payment:', error);
-                showAlert('Unable to open payment gateway. Please try again.');
             }
         });
         
-        // Development debug info
-        if (window.location.hostname === 'localhost') {
-            console.log('Payment Config:', {
-                keyId: config.keyId,
-                orderId: config.orderId,
-                amount: config.amount,
-                hasToken: !!config.userToken
-            });
-        }
+        rzp.on('payment.failed', function(response) {
+            hideLoading();
+            showAlert('Payment failed: ' + response.error.description);
+            setTimeout(() => {
+                window.location.href = '/payment/failed?order_id=' + config.orderId + '&error=' + response.error.code;
+            }, 3000);
+        });
+        
+        payBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            rzp.open();
+        });
     </script>
 </body>
 </html>

@@ -3,12 +3,10 @@ package user
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	userpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/user/v1"
@@ -33,7 +31,7 @@ func NewClient(address string) (*Client, error) {
 
 func (c *Client) UpdateProfile(ctx context.Context, userID string,
 	isBride bool, fullName string,
-	dateOfBirth *time.Time, heightCM int, physicallyChallenged bool,
+	dateOfBirth string, heightCM int, physicallyChallenged bool,
 	community string, maritalStatus string, profession string,
 	professionType string, highestEducationLevel string, homeDistrict string) (bool, string, error) {
 
@@ -46,6 +44,7 @@ func (c *Client) UpdateProfile(ctx context.Context, userID string,
 	req := &userpb.UpdateProfileRequest{
 		IsBride:               isBride,
 		FullName:              fullName,
+		DateOfBirth:           dateOfBirth,
 		PhysicallyChallenged:  physicallyChallenged,
 		Community:             community,
 		MaritalStatus:         maritalStatus,
@@ -54,10 +53,6 @@ func (c *Client) UpdateProfile(ctx context.Context, userID string,
 		HighestEducationLevel: highestEducationLevel,
 		HomeDistrict:          homeDistrict,
 		HeightCm:              int32(heightCM),
-	}
-
-	if dateOfBirth != nil {
-		req.DateOfBirth = timestamppb.New(*dateOfBirth)
 	}
 
 	resp, err := c.client.UpdateProfile(ctx, req)
@@ -107,7 +102,7 @@ func (c *Client) DeleteProfilePhoto(ctx context.Context, userID string) (bool, s
 
 func (c *Client) PatchProfile(ctx context.Context, userID string,
 	isBride *bool, fullName *string,
-	dateOfBirth *time.Time, heightCM *int, physicallyChallenged *bool,
+	dateOfBirth string, heightCM *int, physicallyChallenged *bool,
 	community *string, maritalStatus *string, profession *string,
 	professionType *string, highestEducationLevel *string, homeDistrict *string,
 	clearDateOfBirth bool, clearHeightCM bool) (bool, string, error) {
@@ -130,8 +125,8 @@ func (c *Client) PatchProfile(ctx context.Context, userID string,
 		req.FullName = &wrapperspb.StringValue{Value: *fullName}
 	}
 
-	if dateOfBirth != nil && !clearDateOfBirth {
-		req.DateOfBirth = timestamppb.New(*dateOfBirth)
+	if dateOfBirth != "" && !clearDateOfBirth {
+		req.DateOfBirth = dateOfBirth
 	}
 
 	if heightCM != nil && !clearHeightCM {
@@ -585,6 +580,20 @@ func (c *Client) DeleteUserVideo(ctx context.Context, userID string) (bool, stri
 	}
 
 	return resp.Success, resp.Message, nil
+}
+
+// GetDetailedProfile gets detailed profile information by profile ID
+func (c *Client) GetDetailedProfile(ctx context.Context, profileID uint64) (bool, string, *userpb.DetailedProfileData, error) {
+	req := &userpb.GetDetailedProfileRequest{
+		ProfileId: profileID,
+	}
+
+	resp, err := c.client.GetDetailedProfile(ctx, req)
+	if err != nil {
+		return false, "", nil, err
+	}
+
+	return resp.Success, resp.Message, resp.Profile, nil
 }
 
 func (c *Client) Close() error {

@@ -6,18 +6,31 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	paymentpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/payment/v1"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/messaging/rabbitmq"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/payment/razorpay"
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/utils/indianstandardtime"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/constants"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/domain/repositories"
-	paymentErrors "github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/errors"
+	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/errors"
 )
 
-// PaymentService handles payment-related business logic
+type PaymentDetails struct {
+	OrderID   string
+	PaymentID string
+	Amount    int64
+	Currency  string
+	PlanName  string
+	Status    string
+	UserID    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type PaymentService struct {
 	paymentRepo     repositories.PaymentRepository
 	razorpayService *razorpay.Service
@@ -26,7 +39,6 @@ type PaymentService struct {
 	messageBroker   *rabbitmq.Client
 }
 
-// PaymentServiceConfig holds service configuration
 type PaymentServiceConfig struct {
 	PaymentRepo     repositories.PaymentRepository
 	RazorpayService *razorpay.Service
@@ -35,7 +47,16 @@ type PaymentServiceConfig struct {
 	MessageBroker   *rabbitmq.Client
 }
 
-// NewPaymentService creates a new payment service instance
+type OrderDetails struct {
+	RazorpayOrderId string
+	RazorpayKeyId   string
+	Amount          int64
+	Currency        string
+	PlanName        string
+	Status          string
+	UserID          string
+}
+
 func NewPaymentService(cfg PaymentServiceConfig) *PaymentService {
 	return &PaymentService{
 		paymentRepo:     cfg.PaymentRepo,
@@ -46,436 +67,549 @@ func NewPaymentService(cfg PaymentServiceConfig) *PaymentService {
 	}
 }
 
-// CreatePaymentOrder creates a new payment order for subscription
-func (s *PaymentService) CreatePaymentOrder(ctx context.Context, userID uuid.UUID, planID string) (*models.Payment, *config.SubscriptionPlan, error) {
+func (s *PaymentService) CreatePaymentOrder(ctx context.Context, userID, planID string) (*paymentpb.CreatePaymentOrderResponse, error) {
 	s.logger.Info("Creating payment order", "userID", userID, "planID", planID)
 
-	// Validate plan
-	plan, err := s.validatePlan(planID)
-	if err != nil {
-		s.logger.Error("Invalid plan requested", "planID", planID, "userID", userID, "error", err)
-		return nil, nil, err
-	}
-
-	// Create Razorpay order
-	payment, err := s.createRazorpayOrder(ctx, userID, plan)
-	if err != nil {
-		s.logger.Error("Failed to create payment order", "error", err, "userID", userID, "planID", planID)
-		return nil, nil, err
-	}
-
-	s.logger.Info("Payment order created successfully",
-		"userID", userID,
-		"planID", planID,
-		"amount", plan.Amount,
-		"orderID", payment.RazorpayOrderID)
-
-	return payment, &plan, nil
-}
-
-// VerifyPayment verifies payment signature and creates/extends subscription
-func (s *PaymentService) VerifyPayment(ctx context.Context, userID uuid.UUID, razorpayOrderID, paymentID, signature string) (*models.Subscription, error) {
-	s.logger.Info("Verifying payment",
-		"userID", userID,
-		"orderID", razorpayOrderID,
-		"paymentID", paymentID)
-
-	// Get and validate payment
-	payment, err := s.getAndValidatePayment(ctx, userID, razorpayOrderID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Verify signature
-	if err := s.verifyPaymentSignature(razorpayOrderID, paymentID, signature); err != nil {
-		s.updatePaymentStatus(ctx, payment, models.PaymentStatusFailed)
-		return nil, err
-	}
-
-	// Update payment status
-	if err := s.updatePaymentStatus(ctx, payment, models.PaymentStatusSuccess); err != nil {
-		return nil, err
-	}
-
-	// Handle subscription
-	subscription, err := s.handleSubscription(ctx, userID, payment, paymentID, signature)
-	if err != nil {
-		return nil, err
-	}
-
-	s.logger.Info("Payment verified and subscription processed",
-		"userID", userID,
-		"orderID", razorpayOrderID,
-		"subscriptionID", subscription.ID)
-
-	return subscription, nil
-}
-
-// GetUserSubscription retrieves user's active subscription
-func (s *PaymentService) GetUserSubscription(ctx context.Context, userID uuid.UUID) (*models.Subscription, error) {
-	s.logger.Info("Getting user subscription", "userID", userID)
-
-	subscription, err := s.paymentRepo.GetUserActiveSubscription(ctx, userID)
-	if err != nil {
-		s.logger.Error("Failed to get user subscription", "error", err, "userID", userID)
-		return nil, paymentErrors.NewInternalError(
-			paymentErrors.CodePaymentNotFound,
-			"failed to get subscription",
-			err,
-		)
-	}
-
-	return subscription, nil
-}
-
-// GetUserPaymentHistory retrieves user's payment history with pagination
-func (s *PaymentService) GetUserPaymentHistory(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]*models.Payment, int32, error) {
-	s.logger.Info("Getting payment history", "userID", userID, "limit", limit, "offset", offset)
-
-	// Validate pagination parameters
-	limit, offset = s.validatePaginationParams(limit, offset)
-
-	payments, total, err := s.paymentRepo.GetUserPayments(ctx, userID, limit, offset)
-	if err != nil {
-		s.logger.Error("Failed to get payment history", "error", err, "userID", userID)
-		return nil, 0, paymentErrors.NewInternalError(
-			"PAYMENT_HISTORY_FETCH_FAILED",
-			"failed to get payment history",
-			err,
-		)
-	}
-
-	return payments, total, nil
-}
-
-// GetRazorpayKeyID returns the Razorpay key ID for frontend integration
-func (s *PaymentService) GetRazorpayKeyID() string {
-	return s.razorpayService.GetKeyID()
-}
-
-// GetActivePlans returns all active subscription plans
-func (s *PaymentService) GetActivePlans() map[string]config.SubscriptionPlan {
-	return s.plansConfig.GetActivePlans()
-}
-
-// Private helper methods
-func (s *PaymentService) validatePlan(planID string) (config.SubscriptionPlan, error) {
-	// Debug: Log all available plans
-	activePlans := s.plansConfig.GetActivePlans()
-	s.logger.Info("Validating plan",
-		"requested_plan", planID,
-		"available_plans_count", len(activePlans))
-
-	for id, plan := range activePlans {
-		s.logger.Info("Available plan",
-			"id", id,
-			"name", plan.Name,
-			"active", plan.IsActive)
-	}
-
+	// Get plan configuration
 	plan, exists := s.plansConfig.GetPlan(planID)
-	if !exists {
-		s.logger.Error("Plan not found",
-			"requested_plan", planID,
-			"available_plans", func() []string {
-				var plans []string
-				for id := range activePlans {
-					plans = append(plans, id)
-				}
-				return plans
-			}())
-		return config.SubscriptionPlan{}, paymentErrors.NewValidationError(
-			paymentErrors.CodeInvalidPlan,
-			constants.ErrMsgInvalidPlan,
-			nil,
-		)
+	if !exists || !plan.IsActive {
+		return &paymentpb.CreatePaymentOrderResponse{
+			Success: false,
+			Message: "Invalid plan selected",
+			Error:   "INVALID_PLAN",
+		}, nil
 	}
 
-	if !plan.IsActive {
-		s.logger.Error("Plan is not active",
-			"plan_id", planID,
-			"active", plan.IsActive)
-		return config.SubscriptionPlan{}, paymentErrors.NewValidationError(
-			paymentErrors.CodeInvalidPlan,
-			constants.ErrMsgInvalidPlan,
-			nil,
-		)
-	}
-
-	s.logger.Info("Plan validation successful",
-		"plan_id", planID,
-		"plan_name", plan.Name)
-	return plan, nil
-}
-
-func (s *PaymentService) createRazorpayOrder(ctx context.Context, userID uuid.UUID, plan config.SubscriptionPlan) (*models.Payment, error) {
-	// Create Razorpay order
+	// Convert amount to paise
 	amountInPaise := int64(plan.Amount * constants.PaiseMultiplier)
-	razorpayOrder, err := s.razorpayService.CreateOrder(amountInPaise, plan.Currency)
+
+	// Create Razorpay order
+	order, err := s.razorpayService.CreateOrder(amountInPaise, plan.Currency)
 	if err != nil {
-		return nil, paymentErrors.NewExternalError(
-			paymentErrors.CodeOrderCreation,
-			constants.ErrMsgOrderCreationFailed,
-			err,
-		)
+		s.logger.Error("Failed to create Razorpay order", "error", err)
+		return &paymentpb.CreatePaymentOrderResponse{
+			Success: false,
+			Message: "Failed to create payment order",
+			Error:   "ORDER_CREATION_FAILED",
+		}, nil
+	}
+
+	// Parse user ID
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return &paymentpb.CreatePaymentOrderResponse{
+			Success: false,
+			Message: "Invalid user ID",
+			Error:   "INVALID_USER_ID",
+		}, nil
 	}
 
 	// Create payment record
-	now := indianstandardtime.Now()
 	payment := &models.Payment{
-		UserID:          userID,
-		RazorpayOrderID: razorpayOrder.ID,
+		UserID:          userUUID,
+		RazorpayOrderID: order.ID,
 		Amount:          plan.Amount,
 		Currency:        plan.Currency,
 		Status:          models.PaymentStatusPending,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 
-	// Save to database
 	if err := s.paymentRepo.CreatePayment(ctx, payment); err != nil {
-		return nil, paymentErrors.NewInternalError(
-			paymentErrors.CodePaymentSave,
-			constants.ErrMsgPaymentSaveFailed,
-			err,
-		)
+		s.logger.Error("Failed to save payment record", "error", err)
+		return &paymentpb.CreatePaymentOrderResponse{
+			Success: false,
+			Message: "Failed to save payment record",
+			Error:   "PAYMENT_SAVE_FAILED",
+		}, nil
 	}
 
-	return payment, nil
+	return &paymentpb.CreatePaymentOrderResponse{
+		Success: true,
+		Message: "Payment order created successfully",
+		OrderData: &paymentpb.PaymentOrderData{
+			RazorpayOrderId: order.ID,
+			RazorpayKeyId:   s.razorpayService.GetKeyID(),
+			Amount:          amountInPaise,
+			Currency:        plan.Currency,
+			PlanName:        plan.Name,
+		},
+	}, nil
 }
 
-func (s *PaymentService) getAndValidatePayment(ctx context.Context, userID uuid.UUID, razorpayOrderID string) (*models.Payment, error) {
-	payment, err := s.paymentRepo.GetPaymentByOrderID(ctx, razorpayOrderID)
-	if err != nil {
-		return nil, paymentErrors.NewInternalError(
-			paymentErrors.CodePaymentNotFound,
-			"failed to get payment",
-			err,
-		)
-	}
+func (s *PaymentService) VerifyPayment(ctx context.Context, userID, razorpayOrderID, razorpayPaymentID, razorpaySignature string) (*paymentpb.VerifyPaymentResponse, error) {
+	s.logger.Info("Verifying payment", "userID", userID, "orderID", razorpayOrderID)
 
-	if payment == nil {
-		return nil, paymentErrors.NewNotFoundError(
-			paymentErrors.CodePaymentNotFound,
-			constants.ErrMsgPaymentNotFound,
-			nil,
-		)
-	}
-
-	// Verify user ownership
-	if payment.UserID != userID {
-		return nil, paymentErrors.NewValidationError(
-			paymentErrors.CodeUnauthorized,
-			"unauthorized access to payment",
-			nil,
-		)
-	}
-
-	// Check if payment already processed
-	if payment.Status == models.PaymentStatusSuccess {
-		return nil, paymentErrors.NewConflictError(
-			paymentErrors.CodeDuplicatePayment,
-			constants.ErrMsgDuplicatePayment,
-			nil,
-		)
-	}
-
-	return payment, nil
-}
-
-func (s *PaymentService) verifyPaymentSignature(razorpayOrderID, paymentID, signature string) error {
+	// Verify signature with Razorpay
 	attributes := map[string]interface{}{
 		"razorpay_order_id":   razorpayOrderID,
-		"razorpay_payment_id": paymentID,
-		"razorpay_signature":  signature,
+		"razorpay_payment_id": razorpayPaymentID,
+		"razorpay_signature":  razorpaySignature,
 	}
 
 	if err := s.razorpayService.VerifyPaymentSignature(attributes); err != nil {
-		return paymentErrors.NewValidationError(
-			paymentErrors.CodeInvalidSignature,
-			constants.ErrMsgInvalidSignature,
-			err,
-		)
+		s.logger.Error("Payment signature verification failed", "error", err)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Payment verification failed",
+			Error:   "SIGNATURE_VERIFICATION_FAILED",
+		}, nil
 	}
 
-	return nil
-}
-
-func (s *PaymentService) updatePaymentStatus(ctx context.Context, payment *models.Payment, status models.PaymentStatus) error {
-	payment.Status = status
-	payment.UpdatedAt = indianstandardtime.Now()
-
-	if err := s.paymentRepo.UpdatePayment(ctx, payment); err != nil {
-		s.logger.Error("Failed to update payment status", "error", err, "paymentID", payment.ID, "status", status)
-		return paymentErrors.NewInternalError(
-			"PAYMENT_UPDATE_FAILED",
-			"failed to update payment",
-			err,
-		)
-	}
-
-	return nil
-}
-
-func (s *PaymentService) handleSubscription(ctx context.Context, userID uuid.UUID, payment *models.Payment, paymentID, signature string) (*models.Subscription, error) {
-	// Update payment with signature details
-	payment.RazorpayPaymentID = &paymentID
-	payment.RazorpaySignature = &signature
-	if err := s.paymentRepo.UpdatePayment(ctx, payment); err != nil {
-		return nil, paymentErrors.NewInternalError(
-			"PAYMENT_UPDATE_FAILED",
-			"failed to update payment with signature",
-			err,
-		)
-	}
-
-	// Check for existing subscription
-	existingSubscription, err := s.paymentRepo.GetUserActiveSubscription(ctx, userID)
+	// Get payment record
+	payment, err := s.paymentRepo.GetPaymentByOrderID(ctx, razorpayOrderID)
 	if err != nil {
-		return nil, paymentErrors.NewInternalError(
-			"SUBSCRIPTION_CHECK_FAILED",
-			"failed to check existing subscription",
-			err,
-		)
+		s.logger.Error("Failed to get payment record", "error", err)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Payment not found",
+			Error:   "PAYMENT_NOT_FOUND",
+		}, nil
 	}
 
-	if existingSubscription != nil {
-		return s.extendSubscription(ctx, existingSubscription)
+	// Check if payment is already processed
+	if payment.Status == models.PaymentStatusSuccess {
+		s.logger.Info("Payment already processed", "orderID", razorpayOrderID)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Payment already processed",
+			Error:   "DUPLICATE_PAYMENT",
+		}, nil
 	}
 
-	return s.createNewSubscription(ctx, userID, payment)
+	// Verify user ownership
+	userUUID, _ := uuid.Parse(userID)
+	if payment.UserID != userUUID {
+		s.logger.Error("Unauthorized payment access", "userID", userID, "paymentUserID", payment.UserID)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Unauthorized access",
+			Error:   "UNAUTHORIZED_ACCESS",
+		}, nil
+	}
+
+	// Process payment and create subscription in transaction
+	var subscription *models.Subscription
+	err = s.paymentRepo.WithTx(ctx, func(txCtx context.Context) error {
+		// Update payment record
+		paymentIDStr := razorpayPaymentID
+		signatureStr := razorpaySignature
+		payment.RazorpayPaymentID = &paymentIDStr
+		payment.RazorpaySignature = &signatureStr
+		payment.Status = models.PaymentStatusSuccess
+		payment.UpdatedAt = time.Now()
+
+		if err := s.paymentRepo.UpdatePayment(txCtx, payment); err != nil {
+			return fmt.Errorf("failed to update payment: %w", err)
+		}
+
+		// Get plan details
+		planID := constants.DefaultPlanID // or extract from payment record if stored
+		plan, exists := s.plansConfig.GetPlan(planID)
+		if !exists {
+			return fmt.Errorf("plan not found: %s", planID)
+		}
+
+		// Create subscription
+		now := time.Now()
+		endDate := now.AddDate(0, 0, plan.DurationDays)
+
+		subscription = &models.Subscription{
+			UserID:    userUUID,
+			PlanID:    plan.ID,
+			Status:    models.SubscriptionStatusActive,
+			StartDate: &now,
+			EndDate:   &endDate,
+			Amount:    plan.Amount,
+			Currency:  plan.Currency,
+			PaymentID: &payment.ID,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		return s.paymentRepo.CreateSubscription(txCtx, subscription)
+	})
+
+	if err != nil {
+		s.logger.Error("Failed to process payment", "error", err)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Failed to process payment",
+			Error:   "PAYMENT_PROCESSING_FAILED",
+		}, nil
+	}
+
+	// Publish subscription activated event
+	s.publishSubscriptionEvent(userID, "subscription.activated", subscription)
+
+	// Convert subscription to protobuf
+	subscriptionData := &paymentpb.SubscriptionData{
+		Id:        subscription.ID.String(),
+		PlanId:    subscription.PlanID,
+		Status:    string(subscription.Status),
+		StartDate: timestamppb.New(*subscription.StartDate),
+		EndDate:   timestamppb.New(*subscription.EndDate),
+		Amount:    subscription.Amount,
+		Currency:  subscription.Currency,
+		IsActive:  subscription.IsActive(),
+	}
+
+	return &paymentpb.VerifyPaymentResponse{
+		Success:      true,
+		Message:      "Payment verified and subscription activated",
+		Subscription: subscriptionData,
+	}, nil
 }
 
-func (s *PaymentService) extendSubscription(ctx context.Context, subscription *models.Subscription) (*models.Subscription, error) {
-	s.logger.Info("Extending existing subscription", "subscriptionID", subscription.ID)
-
-	now := indianstandardtime.Now()
-	var newEndDate time.Time
-
-	if subscription.EndDate != nil {
-		newEndDate = subscription.EndDate.AddDate(constants.DefaultPlanDurationYears, 0, 0)
-	} else {
-		newEndDate = now.AddDate(constants.DefaultPlanDurationYears, 0, 0)
+func (s *PaymentService) GetSubscriptionStatus(ctx context.Context, userID string) (*paymentpb.GetSubscriptionStatusResponse, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return &paymentpb.GetSubscriptionStatusResponse{
+			Success: false,
+			Message: "Invalid user ID",
+			Error:   "INVALID_USER_ID",
+		}, nil
 	}
 
-	subscription.EndDate = &newEndDate
-	subscription.UpdatedAt = now
-
-	if err := s.paymentRepo.UpdateSubscription(ctx, subscription); err != nil {
-		return nil, paymentErrors.NewInternalError(
-			"SUBSCRIPTION_EXTEND_FAILED",
-			"failed to extend subscription",
-			err,
-		)
-	}
-
-	// Publish subscription extension event
-	if s.messageBroker != nil {
-		subscriptionEvent := map[string]interface{}{
-			"user_id":         subscription.UserID.String(),
-			"premium_until":   newEndDate,
-			"event_type":      "subscription.extended",
-			"subscription_id": subscription.ID.String(),
-			"plan_id":         subscription.PlanID,
-			"timestamp":       now,
+	subscription, err := s.paymentRepo.GetActiveSubscriptionByUserID(ctx, userUUID)
+	if err != nil {
+		if err == errors.ErrSubscriptionNotFound {
+			return &paymentpb.GetSubscriptionStatusResponse{
+				Success: true,
+				Message: "No active subscription found",
+			}, nil
 		}
-
-		if err := s.messageBroker.Publish("subscription.extended", subscriptionEvent); err != nil {
-			s.logger.Error("Failed to publish subscription extension event", "userID", subscription.UserID, "error", err)
-			// Don't return error as subscription is already updated
-		} else {
-			s.logger.Info("Subscription extension event published", "userID", subscription.UserID)
-		}
+		s.logger.Error("Failed to get subscription", "error", err)
+		return &paymentpb.GetSubscriptionStatusResponse{
+			Success: false,
+			Message: "Failed to get subscription",
+			Error:   "SUBSCRIPTION_FETCH_FAILED",
+		}, nil
 	}
 
-	return subscription, nil
+	subscriptionData := &paymentpb.SubscriptionData{
+		Id:        subscription.ID.String(),
+		PlanId:    subscription.PlanID,
+		Status:    string(subscription.Status),
+		StartDate: timestamppb.New(*subscription.StartDate),
+		EndDate:   timestamppb.New(*subscription.EndDate),
+		Amount:    subscription.Amount,
+		Currency:  subscription.Currency,
+		IsActive:  subscription.IsActive(),
+	}
+
+	return &paymentpb.GetSubscriptionStatusResponse{
+		Success:      true,
+		Message:      "Subscription found",
+		Subscription: subscriptionData,
+	}, nil
 }
 
-func (s *PaymentService) createNewSubscription(ctx context.Context, userID uuid.UUID, payment *models.Payment) (*models.Subscription, error) {
-	s.logger.Info("Creating new subscription", "userID", userID, "paymentID", payment.ID)
-
-	now := indianstandardtime.Now()
-	endDate := now.AddDate(constants.DefaultPlanDurationYears, 0, 0)
-
-	subscription := &models.Subscription{
-		UserID:    userID,
-		PlanID:    constants.DefaultPlanID,
-		Status:    models.SubscriptionStatusActive,
-		Amount:    payment.Amount,
-		Currency:  payment.Currency,
-		PaymentID: &payment.ID,
-		StartDate: &now,
-		EndDate:   &endDate,
-		CreatedAt: now,
-		UpdatedAt: now,
+func (s *PaymentService) GetPaymentHistory(ctx context.Context, userID string, limit, offset int32) (*paymentpb.GetPaymentHistoryResponse, error) {
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return &paymentpb.GetPaymentHistoryResponse{
+			Success: false,
+			Message: "Invalid user ID",
+			Error:   "INVALID_USER_ID",
+		}, nil
 	}
 
-	if err := s.paymentRepo.CreateSubscription(ctx, subscription); err != nil {
-		return nil, paymentErrors.NewInternalError(
-			"SUBSCRIPTION_CREATE_FAILED",
-			"failed to create subscription",
-			err,
-		)
-	}
-
-	// Publish subscription activation event
-	if s.messageBroker != nil {
-		subscriptionEvent := map[string]interface{}{
-			"user_id":         userID.String(),
-			"premium_until":   endDate,
-			"event_type":      "subscription.activated",
-			"subscription_id": subscription.ID.String(),
-			"plan_id":         subscription.PlanID,
-			"amount":          subscription.Amount,
-			"timestamp":       now,
-		}
-
-		if err := s.messageBroker.Publish("subscription.activated", subscriptionEvent); err != nil {
-			s.logger.Error("Failed to publish subscription activation event", "userID", userID, "error", err)
-			// Don't return error as subscription is already created
-		} else {
-			s.logger.Info("Subscription activation event published", "userID", userID)
-		}
-	}
-
-	return subscription, nil
-}
-
-func (s *PaymentService) validatePaginationParams(limit, offset int32) (int32, int32) {
+	// Apply default limits
 	if limit <= 0 || limit > constants.MaxLimit {
 		limit = constants.DefaultLimit
 	}
 	if offset < 0 {
 		offset = constants.DefaultOffset
 	}
-	return limit, offset
-}
 
-// Add to existing PaymentService
-func (s *PaymentService) VerifyWebhookSignature(signature, payload string) error {
-	// Implement Razorpay webhook signature verification
-	return s.razorpayService.VerifyWebhookSignature(signature, payload)
-}
-
-func (s *PaymentService) HandleWebhookEvent(ctx context.Context, event, payload string) error {
-	switch event {
-	case "payment.captured":
-		return s.handlePaymentCaptured(ctx, payload)
-	case "payment.failed":
-		return s.handlePaymentFailed(ctx, payload)
-	default:
-		s.logger.Info("Unhandled webhook event", "event", event)
-		return nil
-	}
-}
-
-func (s *PaymentService) CreatePaymentURL(ctx context.Context, userID uuid.UUID, planID string) (string, error) {
-	// Create payment order and return a simple redirect URL
-	payment, plan, err := s.CreatePaymentOrder(ctx, userID, planID)
+	payments, total, err := s.paymentRepo.GetPaymentsByUserID(ctx, userUUID, int(limit), int(offset))
 	if err != nil {
-		return "", err
+		s.logger.Error("Failed to get payment history", "error", err)
+		return &paymentpb.GetPaymentHistoryResponse{
+			Success: false,
+			Message: "Failed to get payment history",
+			Error:   "PAYMENT_HISTORY_FETCH_FAILED",
+		}, nil
 	}
 
-	// Return a simple URL that redirects to Razorpay
-	return fmt.Sprintf("/api/v1/payment/checkout?order_id=%s", payment.RazorpayOrderID), nil
+	// Convert to protobuf
+	paymentData := make([]*paymentpb.PaymentData, len(payments))
+	for i, payment := range payments {
+		paymentData[i] = &paymentpb.PaymentData{
+			Id:                payment.ID.String(),
+			RazorpayOrderId:   payment.RazorpayOrderID,
+			RazorpayPaymentId: getStringPtr(payment.RazorpayPaymentID),
+			Amount:            payment.Amount,
+			Currency:          payment.Currency,
+			Status:            string(payment.Status),
+			PaymentMethod:     getStringPtr(payment.PaymentMethod),
+			CreatedAt:         timestamppb.New(payment.CreatedAt),
+		}
+	}
+
+	pagination := &paymentpb.PaginationData{
+		Limit:   limit,
+		Offset:  offset,
+		Total:   int32(total),
+		HasMore: int64(offset+limit) < total,
+	}
+
+	return &paymentpb.GetPaymentHistoryResponse{
+		Success:    true,
+		Message:    "Payment history retrieved",
+		Payments:   paymentData,
+		Pagination: pagination,
+	}, nil
+}
+
+func (s *PaymentService) HandleWebhook(ctx context.Context, event, payload, signature string) (*paymentpb.WebhookResponse, error) {
+	s.logger.Info("Handling webhook", "event", event)
+
+	// Verify webhook signature
+	if err := s.razorpayService.VerifyWebhookSignature(signature, payload); err != nil {
+		s.logger.Error("Webhook signature verification failed", "error", err)
+		return &paymentpb.WebhookResponse{
+			Success: false,
+			Message: "Signature verification failed",
+		}, nil
+	}
+
+	// Process webhook event
+	// This is a basic implementation - you can extend based on your needs
+	s.logger.Info("Webhook processed successfully", "event", event)
+
+	return &paymentpb.WebhookResponse{
+		Success: true,
+		Message: "Webhook processed successfully",
+	}, nil
+}
+
+func (s *PaymentService) CreatePaymentURL(ctx context.Context, userID, planID string) (*paymentpb.CreatePaymentURLResponse, error) {
+	// Get plan configuration
+	plan, exists := s.plansConfig.GetPlan(planID)
+	if !exists || !plan.IsActive {
+		return &paymentpb.CreatePaymentURLResponse{
+			Success: false,
+			Message: "Invalid plan selected",
+		}, nil
+	}
+
+	// Create a simple payment URL (redirect to payment service)
+	paymentURL := fmt.Sprintf("http://localhost:8081/payment/checkout?plan_id=%s", planID)
+
+	return &paymentpb.CreatePaymentURLResponse{
+		Success:    true,
+		Message:    "Payment URL created",
+		PaymentUrl: paymentURL,
+	}, nil
+}
+
+// Helper functions
+func getStringPtr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func (s *PaymentService) publishSubscriptionEvent(userID, eventType string, subscription *models.Subscription) {
+	if s.messageBroker == nil {
+		return
+	}
+
+	event := map[string]interface{}{
+		"user_id":         userID,
+		"subscription_id": subscription.ID.String(),
+		"plan_id":         subscription.PlanID,
+		"status":          string(subscription.Status),
+		"start_date":      subscription.StartDate,
+		"end_date":        subscription.EndDate,
+		"premium_until":   subscription.EndDate, // auth service will use this to check if user is premium
+		"amount":          subscription.Amount,
+		"currency":        subscription.Currency,
+		"timestamp":       time.Now(),
+	}
+
+	if err := s.messageBroker.Publish(eventType, event); err != nil {
+		s.logger.Error("Failed to publish subscription event", "error", err, "event", eventType)
+	}
+}
+
+func (s *PaymentService) GetOrderDetails(ctx context.Context, razorpayOrderID string) (*OrderDetails, error) {
+	s.logger.Info("Getting order details", "orderID", razorpayOrderID)
+
+	// Get payment record by order ID
+	payment, err := s.paymentRepo.GetPaymentByOrderID(ctx, razorpayOrderID)
+	if err != nil {
+		s.logger.Error("Failed to get payment record", "error", err)
+		return nil, fmt.Errorf("order not found")
+	}
+
+	// Get plan details
+	plan, exists := s.plansConfig.GetPlan("premium_365") // You might want to store plan_id in payment record
+	if !exists {
+		return nil, fmt.Errorf("plan not found")
+	}
+
+	return &OrderDetails{
+		RazorpayOrderId: payment.RazorpayOrderID,
+		RazorpayKeyId:   s.razorpayService.GetKeyID(),
+		Amount:          int64(payment.Amount * 100), // Convert to paise
+		Currency:        payment.Currency,
+		PlanName:        plan.Name,
+		Status:          string(payment.Status),
+		UserID:          payment.UserID.String(),
+	}, nil
+}
+
+func (s *PaymentService) GetPaymentDetailsByOrderID(ctx context.Context, razorpayOrderID string) (*PaymentDetails, error) {
+	s.logger.Info("Getting payment details by order ID", "orderID", razorpayOrderID)
+
+	// Get payment record by order ID
+	payment, err := s.paymentRepo.GetPaymentByOrderID(ctx, razorpayOrderID)
+	if err != nil {
+		s.logger.Error("Failed to get payment record", "error", err)
+		return nil, fmt.Errorf("payment not found")
+	}
+
+	// Get plan details
+	plan, exists := s.plansConfig.GetPlan("premium_365") // You might want to store plan_id in payment record
+	if !exists {
+		return nil, fmt.Errorf("plan not found")
+	}
+
+	return &PaymentDetails{
+		OrderID:   payment.RazorpayOrderID,
+		PaymentID: *payment.RazorpayPaymentID,  // Will be null if not paid yet
+		Amount:    int64(payment.Amount * 100), // Convert to paise
+		Currency:  payment.Currency,
+		PlanName:  plan.Name,
+		Status:    string(payment.Status),
+		UserID:    payment.UserID.String(),
+		CreatedAt: payment.CreatedAt,
+		UpdatedAt: payment.UpdatedAt,
+	}, nil
+}
+
+// VerifyPaymentByOrder verifies payment without requiring user ID - gets user context from payment record
+func (s *PaymentService) VerifyPaymentByOrder(ctx context.Context, razorpayOrderID, razorpayPaymentID, razorpaySignature string) (*paymentpb.VerifyPaymentResponse, error) {
+	s.logger.Info("Verifying payment by order", "orderID", razorpayOrderID)
+
+	// ✅ Step 1: Verify signature with Razorpay (security check)
+	attributes := map[string]interface{}{
+		"razorpay_order_id":   razorpayOrderID,
+		"razorpay_payment_id": razorpayPaymentID,
+		"razorpay_signature":  razorpaySignature,
+	}
+
+	if err := s.razorpayService.VerifyPaymentSignature(attributes); err != nil {
+		s.logger.Error("Payment signature verification failed", "error", err)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Payment verification failed",
+			Error:   "SIGNATURE_VERIFICATION_FAILED",
+		}, nil
+	}
+
+	// ✅ Step 2: Get payment record by order ID (contains user info)
+	payment, err := s.paymentRepo.GetPaymentByOrderID(ctx, razorpayOrderID)
+	if err != nil {
+		s.logger.Error("Failed to get payment record", "error", err)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Payment not found",
+			Error:   "PAYMENT_NOT_FOUND",
+		}, nil
+	}
+
+	// ✅ Step 3: Check if payment is already processed
+	if payment.Status == models.PaymentStatusSuccess {
+		s.logger.Info("Payment already processed", "orderID", razorpayOrderID)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Payment already processed",
+			Error:   "DUPLICATE_PAYMENT",
+		}, nil
+	}
+
+	// ✅ Step 4: Extract user ID from payment record (no external user auth needed)
+	userUUID := payment.UserID
+	userID := userUUID.String()
+
+	s.logger.Info("Processing payment for user", "userID", userID, "orderID", razorpayOrderID)
+
+	// ✅ Step 5: Process payment and create subscription in transaction
+	var subscription *models.Subscription
+	err = s.paymentRepo.WithTx(ctx, func(txCtx context.Context) error {
+		// Update payment record
+		paymentIDStr := razorpayPaymentID
+		signatureStr := razorpaySignature
+		payment.RazorpayPaymentID = &paymentIDStr
+		payment.RazorpaySignature = &signatureStr
+		payment.Status = models.PaymentStatusSuccess
+		payment.UpdatedAt = time.Now()
+
+		if err := s.paymentRepo.UpdatePayment(txCtx, payment); err != nil {
+			return fmt.Errorf("failed to update payment: %w", err)
+		}
+
+		// Get plan details
+		planID := constants.DefaultPlanID // or extract from payment record if stored
+		plan, exists := s.plansConfig.GetPlan(planID)
+		if !exists {
+			return fmt.Errorf("plan not found: %s", planID)
+		}
+
+		// Create subscription
+		now := time.Now()
+		endDate := now.AddDate(0, 0, plan.DurationDays)
+
+		subscription = &models.Subscription{
+			UserID:    userUUID,
+			PlanID:    plan.ID,
+			Status:    models.SubscriptionStatusActive,
+			StartDate: &now,
+			EndDate:   &endDate,
+			Amount:    plan.Amount,
+			Currency:  plan.Currency,
+			PaymentID: &payment.ID,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		return s.paymentRepo.CreateSubscription(txCtx, subscription)
+	})
+
+	if err != nil {
+		s.logger.Error("Failed to process payment", "error", err)
+		return &paymentpb.VerifyPaymentResponse{
+			Success: false,
+			Message: "Failed to process payment",
+			Error:   "PAYMENT_PROCESSING_FAILED",
+		}, nil
+	}
+
+	// ✅ Step 6: Publish subscription activated event
+	s.publishSubscriptionEvent(userID, "subscription.activated", subscription)
+
+	// ✅ Step 7: Convert subscription to protobuf response
+	subscriptionData := &paymentpb.SubscriptionData{
+		Id:        subscription.ID.String(),
+		PlanId:    subscription.PlanID,
+		Status:    string(subscription.Status),
+		StartDate: timestamppb.New(*subscription.StartDate),
+		EndDate:   timestamppb.New(*subscription.EndDate),
+		Amount:    subscription.Amount,
+		Currency:  subscription.Currency,
+		IsActive:  subscription.IsActive(),
+	}
+
+	s.logger.Info("Payment verified and subscription activated", "userID", userID, "subscriptionID", subscription.ID)
+
+	return &paymentpb.VerifyPaymentResponse{
+		Success:      true,
+		Message:      "Payment verified and subscription activated",
+		Subscription: subscriptionData,
+	}, nil
 }

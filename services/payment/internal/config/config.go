@@ -9,14 +9,23 @@ import (
 
 type Config struct {
 	GRPC     GRPCConfig     `mapstructure:"grpc"`
+	HTTP     HTTPConfig     `mapstructure:"http"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Razorpay RazorpayConfig `mapstructure:"razorpay"`
 	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
+	Gateway  GatewayConfig  `mapstructure:"gateway"`
 	Plans    PlansConfig    `mapstructure:"plans"`
 }
 
 type GRPCConfig struct {
 	Port int `mapstructure:"port"`
+}
+
+type HTTPConfig struct {
+	Port             int `mapstructure:"port"`
+	ReadTimeoutSecs  int `mapstructure:"read_timeout_secs"`
+	WriteTimeoutSecs int `mapstructure:"write_timeout_secs"`
+	IdleTimeoutSecs  int `mapstructure:"idle_timeout_secs"`
 }
 
 type DatabaseConfig struct {
@@ -42,6 +51,10 @@ type RabbitMQConfig struct {
 	ExchangeName string `mapstructure:"exchange_name"`
 }
 
+type GatewayConfig struct {
+	Address string `mapstructure:"address"`
+}
+
 func LoadConfig(path string) (*Config, error) {
 	viper.SetConfigFile(path)
 	viper.AutomaticEnv()
@@ -55,7 +68,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Override with environment variables
+	// Environment variable overrides
 	if host := os.Getenv("DB_HOST"); host != "" {
 		config.Database.Postgres.Host = host
 	}
@@ -65,8 +78,11 @@ func LoadConfig(path string) (*Config, error) {
 	if keySecret := os.Getenv("RAZORPAY_KEY_SECRET"); keySecret != "" {
 		config.Razorpay.KeySecret = keySecret
 	}
+	if gatewayAddr := os.Getenv("GATEWAY_ADDRESS"); gatewayAddr != "" {
+		config.Gateway.Address = gatewayAddr
+	}
 
-	// Set default plans if not configured
+	// Set default plans if none configured
 	if len(config.Plans.Available) == 0 {
 		config.Plans = *GetDefaultPlansConfig()
 	}

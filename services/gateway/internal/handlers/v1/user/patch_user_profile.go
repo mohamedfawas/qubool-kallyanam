@@ -2,7 +2,6 @@ package user
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
@@ -11,19 +10,19 @@ import (
 )
 
 type PatchProfileRequest struct {
-	IsBride               *bool      `json:"is_bride,omitempty"`
-	FullName              *string    `json:"full_name,omitempty"`
-	DateOfBirth           *time.Time `json:"date_of_birth,omitempty"`
-	HeightCM              *int       `json:"height_cm,omitempty"`
-	PhysicallyChallenged  *bool      `json:"physically_challenged,omitempty"`
-	Community             *string    `json:"community,omitempty"`
-	MaritalStatus         *string    `json:"marital_status,omitempty"`
-	Profession            *string    `json:"profession,omitempty"`
-	ProfessionType        *string    `json:"profession_type,omitempty"`
-	HighestEducationLevel *string    `json:"highest_education_level,omitempty"`
-	HomeDistrict          *string    `json:"home_district,omitempty"`
-	ClearDateOfBirth      bool       `json:"clear_date_of_birth,omitempty"`
-	ClearHeightCM         bool       `json:"clear_height_cm,omitempty"`
+	IsBride               *bool   `json:"is_bride,omitempty"`
+	FullName              *string `json:"full_name,omitempty"`
+	DateOfBirth           string  `json:"date_of_birth,omitempty"`
+	HeightCM              *int    `json:"height_cm,omitempty"`
+	PhysicallyChallenged  *bool   `json:"physically_challenged,omitempty"`
+	Community             *string `json:"community,omitempty"`
+	MaritalStatus         *string `json:"marital_status,omitempty"`
+	Profession            *string `json:"profession,omitempty"`
+	ProfessionType        *string `json:"profession_type,omitempty"`
+	HighestEducationLevel *string `json:"highest_education_level,omitempty"`
+	HomeDistrict          *string `json:"home_district,omitempty"`
+	ClearDateOfBirth      bool    `json:"clear_date_of_birth,omitempty"`
+	ClearHeightCM         bool    `json:"clear_height_cm,omitempty"`
 }
 
 func (h *Handler) PatchProfile(c *gin.Context) {
@@ -91,7 +90,7 @@ func (h *Handler) PatchProfile(c *gin.Context) {
 		}
 	}
 
-	if req.DateOfBirth != nil {
+	if req.DateOfBirth != "" {
 		if err := validation.ValidateDateOfBirth(req.DateOfBirth); err != nil {
 			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
 			return

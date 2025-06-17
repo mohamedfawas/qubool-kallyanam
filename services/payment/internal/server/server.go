@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,19 +22,22 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/domain/services"
-	v1 "github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/handlers/grpc/v1"
+	grpcv1 "github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/handlers/grpc/v1"
 	"github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/handlers/health"
+	httpv1 "github.com/mohamedfawas/qubool-kallyanam/services/payment/internal/handlers/http/v1"
 )
 
 type Server struct {
 	config       *config.Config
 	logger       logging.Logger
 	grpcServer   *grpc.Server
+	httpServer   *http.Server
 	pgClient     *pgdb.Client
 	rabbitClient *rabbitmq.Client
 }
 
 func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
+	// Database connection
 	pgClient, err := pgdb.NewClient(&pgdb.Config{
 		Host:     cfg.Database.Postgres.Host,
 		Port:     fmt.Sprintf("%d", cfg.Database.Postgres.Port),
@@ -44,16 +50,18 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create postgres client: %w", err)
 	}
 
+	// RabbitMQ connection
 	rabbitClient, err := rabbitmq.NewClient(cfg.RabbitMQ.DSN, cfg.RabbitMQ.ExchangeName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RabbitMQ client: %w", err)
 	}
 
-	// Auto-migrate the models
+	// Auto-migrate database
 	if err := autoMigrate(pgClient.DB); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
+	// Setup gRPC server
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			createLoggingInterceptor(logger),
@@ -61,7 +69,21 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		),
 	)
 
-	if err := registerServices(grpcServer, pgClient.DB, cfg, logger, rabbitClient); err != nil {
+	// Setup HTTP server
+	gin.SetMode(gin.ReleaseMode)
+	httpRouter := gin.New()
+	httpRouter.Use(gin.Recovery())
+
+	httpServer := &http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.HTTP.Port),
+		Handler:      httpRouter,
+		ReadTimeout:  time.Duration(cfg.HTTP.ReadTimeoutSecs) * time.Second,
+		WriteTimeout: time.Duration(cfg.HTTP.WriteTimeoutSecs) * time.Second,
+		IdleTimeout:  time.Duration(cfg.HTTP.IdleTimeoutSecs) * time.Second,
+	}
+
+	// Register services
+	if err := registerServices(grpcServer, httpRouter, pgClient.DB, cfg, logger, rabbitClient); err != nil {
 		return nil, fmt.Errorf("failed to register services: %w", err)
 	}
 
@@ -69,6 +91,7 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		config:       cfg,
 		logger:       logger,
 		grpcServer:   grpcServer,
+		httpServer:   httpServer,
 		pgClient:     pgClient,
 		rabbitClient: rabbitClient,
 	}, nil
@@ -83,21 +106,19 @@ func autoMigrate(db *gorm.DB) error {
 
 func registerServices(
 	grpcServer *grpc.Server,
+	httpRouter *gin.Engine,
 	db *gorm.DB,
 	cfg *config.Config,
 	logger logging.Logger,
 	rabbitClient *rabbitmq.Client,
 ) error {
-	// Register health service
+	// Register health service for gRPC
 	health.RegisterHealthService(grpcServer, db)
 
-	// Create repositories
+	// Initialize dependencies
 	paymentRepo := postgres.NewPaymentRepository(db)
-
-	// Create Razorpay service
 	razorpayService := razorpay.NewService(cfg.Razorpay.KeyID, cfg.Razorpay.KeySecret)
 
-	// Create payment service with new configuration structure
 	paymentService := services.NewPaymentService(services.PaymentServiceConfig{
 		PaymentRepo:     paymentRepo,
 		RazorpayService: razorpayService,
@@ -106,14 +127,30 @@ func registerServices(
 		MessageBroker:   rabbitClient,
 	})
 
-	// Create payment handler
-	paymentHandler := v1.NewPaymentHandler(paymentService, logger)
+	// Register gRPC handlers
+	grpcHandler := grpcv1.NewPaymentHandler(paymentService, logger)
+	paymentpb.RegisterPaymentServiceServer(grpcServer, grpcHandler)
 
-	// Register services
-	paymentpb.RegisterPaymentServiceServer(grpcServer, paymentHandler)
+	// Register HTTP handlers
+	httpHandler := httpv1.NewHTTPHandler(paymentService, cfg, logger)
+	setupHTTPRoutes(httpRouter, httpHandler)
 
 	logger.Info("Payment services registered successfully")
 	return nil
+}
+
+func setupHTTPRoutes(router *gin.Engine, handler *httpv1.HTTPHandler) {
+	// Health check
+	router.GET("/health", handler.HealthCheck)
+
+	// Payment UI routes
+	paymentGroup := router.Group("/payment")
+	{
+		paymentGroup.GET("/plans", handler.ShowPlans)
+		paymentGroup.GET("/checkout", handler.ShowPaymentPage)
+		paymentGroup.GET("/success", handler.ShowSuccessPage)
+		paymentGroup.GET("/failed", handler.ShowFailedPage)
+	}
 }
 
 func createLoggingInterceptor(logger logging.Logger) grpc.UnaryServerInterceptor {
@@ -141,17 +178,38 @@ func createErrorInterceptor() grpc.UnaryServerInterceptor {
 }
 
 func (s *Server) Start() error {
+	// Start HTTP server in a goroutine
+	go func() {
+		s.logger.Info("Starting HTTP server", "port", s.config.HTTP.Port)
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.logger.Fatal("Failed to start HTTP server", "error", err)
+		}
+	}()
+
+	// Start gRPC server (blocking)
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.config.GRPC.Port))
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
+
 	s.logger.Info("Starting gRPC server", "port", s.config.GRPC.Port)
 	return s.grpcServer.Serve(lis)
 }
 
 func (s *Server) Stop() {
-	s.logger.Info("Stopping gRPC server")
+	s.logger.Info("Stopping servers")
+
+	// Stop gRPC server
 	s.grpcServer.GracefulStop()
+
+	// Stop HTTP server
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		s.logger.Error("HTTP server forced to shutdown", "error", err)
+	}
+
+	// Close database and messaging connections
 	if s.pgClient != nil {
 		s.pgClient.Close()
 	}

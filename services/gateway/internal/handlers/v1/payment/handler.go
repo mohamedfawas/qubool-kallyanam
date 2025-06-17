@@ -28,19 +28,13 @@ type CreateOrderRequest struct {
 	PlanID string `json:"plan_id" binding:"required"`
 }
 
-type CreateOrderResponse struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"message"`
-	OrderData gin.H  `json:"order_data"`
-}
-
 type VerifyPaymentRequest struct {
 	RazorpayOrderID   string `json:"razorpay_order_id" binding:"required"`
 	RazorpayPaymentID string `json:"razorpay_payment_id" binding:"required"`
 	RazorpaySignature string `json:"razorpay_signature" binding:"required"`
 }
 
-// CreateOrder creates a new payment order
+// CreateOrder - Creates a payment order via payment service
 func (h *Handler) CreateOrder(c *gin.Context) {
 	userID, exists := c.Get(middleware.UserIDKey)
 	if !exists {
@@ -54,24 +48,36 @@ func (h *Handler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	// Just create the order and return the data - no complex HTML
 	success, message, orderData, err := h.paymentClient.CreatePaymentOrder(c.Request.Context(), req.PlanID)
 	if err != nil {
+		h.logger.Error("Failed to create payment order", "error", err, "userID", userID)
 		pkghttp.Error(c, pkghttp.FromGRPCError(err))
 		return
 	}
 
-	// Return simple redirect URL instead of complex JavaScript
+	if !success {
+		pkghttp.Error(c, pkghttp.NewBadRequest(message, nil))
+		return
+	}
+
 	response := gin.H{
-		"success":      success,
-		"message":      message,
-		"redirect_url": fmt.Sprintf("/api/v1/payment/checkout?order_id=%s", orderData.RazorpayOrderId),
+		"success": success,
+		"message": message,
+		"order_data": gin.H{
+			"razorpay_order_id": orderData.RazorpayOrderId,
+			"razorpay_key_id":   orderData.RazorpayKeyId,
+			"amount":            orderData.Amount,
+			"currency":          orderData.Currency,
+			"plan_name":         orderData.PlanName,
+		},
+		// Add payment URL for easy access
+		"payment_url": fmt.Sprintf("http://localhost:8081/payment/checkout?order_id=%s", orderData.RazorpayOrderId),
 	}
 
 	pkghttp.Success(c, http.StatusOK, message, response)
 }
 
-// VerifyPayment verifies payment and activates subscription
+// VerifyPayment - Verifies payment via payment service
 func (h *Handler) VerifyPayment(c *gin.Context) {
 	h.logger.Info("VerifyPayment endpoint called")
 
@@ -95,16 +101,25 @@ func (h *Handler) VerifyPayment(c *gin.Context) {
 		req.RazorpayPaymentID,
 		req.RazorpaySignature,
 	)
+
 	if err != nil {
 		h.logger.Error("Payment verification failed", "error", err, "userID", userID)
 		pkghttp.Error(c, pkghttp.FromGRPCError(err))
 		return
 	}
 
+	if !success {
+		pkghttp.Error(c, pkghttp.NewBadRequest(message, nil))
+		return
+	}
+
 	response := gin.H{
 		"success": success,
 		"message": message,
-		"subscription": gin.H{
+	}
+
+	if subscription != nil {
+		response["subscription"] = gin.H{
 			"id":         subscription.Id,
 			"plan_id":    subscription.PlanId,
 			"status":     subscription.Status,
@@ -113,14 +128,52 @@ func (h *Handler) VerifyPayment(c *gin.Context) {
 			"amount":     subscription.Amount,
 			"currency":   subscription.Currency,
 			"is_active":  subscription.IsActive,
-		},
+		}
 	}
 
 	h.logger.Info("Payment verified successfully", "userID", userID)
 	pkghttp.Success(c, http.StatusOK, message, response)
 }
 
-// GetSubscription gets current subscription status
+// VerifyPaymentQuery - Handle verification via query parameters (for redirects)
+func (h *Handler) VerifyPaymentQuery(c *gin.Context) {
+	h.logger.Info("VerifyPaymentQuery endpoint called")
+
+	// Extract payment parameters from Razorpay redirect
+	orderID := c.Query("razorpay_order_id")
+	paymentID := c.Query("razorpay_payment_id")
+	signature := c.Query("razorpay_signature")
+
+	if orderID == "" || paymentID == "" || signature == "" {
+		h.logger.Error("Missing payment parameters")
+		// ✅ Clean redirect - only error info
+		c.Redirect(http.StatusFound, "http://localhost:8081/payment/failed?error=missing_parameters")
+		return
+	}
+
+	// ✅ IMMEDIATE VERIFICATION - no user context needed (order provides context)
+	success, _, _, err := h.paymentClient.VerifyPayment(
+		c.Request.Context(),
+		orderID,
+		paymentID,
+		signature,
+	)
+
+	if err != nil || !success {
+		h.logger.Error("Payment verification failed", "error", err, "orderID", orderID)
+		// ✅ Clean redirect - only order ID (safe to expose)
+		c.Redirect(http.StatusFound, "http://localhost:8081/payment/failed?order_id="+orderID)
+		return
+	}
+
+	h.logger.Info("Payment verified successfully", "orderID", orderID)
+
+	// ✅ CLEAN SUCCESS REDIRECT - no sensitive payment details in URL
+	successURL := "http://localhost:8081/payment/success?order_id=" + orderID
+	c.Redirect(http.StatusFound, successURL)
+}
+
+// GetSubscription - Gets current subscription status
 func (h *Handler) GetSubscription(c *gin.Context) {
 	h.logger.Info("GetSubscription endpoint called")
 
@@ -160,7 +213,7 @@ func (h *Handler) GetSubscription(c *gin.Context) {
 	pkghttp.Success(c, http.StatusOK, message, response)
 }
 
-// GetPaymentHistory gets payment history
+// GetPaymentHistory - Gets payment history
 func (h *Handler) GetPaymentHistory(c *gin.Context) {
 	h.logger.Info("GetPaymentHistory endpoint called")
 
@@ -171,7 +224,6 @@ func (h *Handler) GetPaymentHistory(c *gin.Context) {
 		return
 	}
 
-	// Parse pagination parameters
 	limitStr := c.DefaultQuery("limit", "10")
 	offsetStr := c.DefaultQuery("offset", "0")
 
@@ -193,6 +245,7 @@ func (h *Handler) GetPaymentHistory(c *gin.Context) {
 		int32(limit),
 		int32(offset),
 	)
+
 	if err != nil {
 		h.logger.Error("Failed to get payment history", "error", err, "userID", userID)
 		pkghttp.Error(c, pkghttp.FromGRPCError(err))
@@ -229,38 +282,17 @@ func (h *Handler) GetPaymentHistory(c *gin.Context) {
 	pkghttp.Success(c, http.StatusOK, message, response)
 }
 
-// PaymentStatus returns payment service status
+// PaymentStatus - Simple health check for payment service
 func (h *Handler) PaymentStatus(c *gin.Context) {
 	h.logger.Info("Payment status endpoint called")
 	pkghttp.Success(c, http.StatusOK, "Payment service is ready", gin.H{
 		"status":  "ready",
 		"service": "payment",
-		"plans": []gin.H{
-			{
-				"id":       "premium_365",
-				"name":     "Premium Membership",
-				"duration": "365 days",
-				"price":    "₹1000",
-				"features": []string{
-					"Unlimited matches",
-					"Chat with premium members",
-					"Advanced filters",
-					"Priority support",
-				},
-			},
-		},
 	})
 }
 
-func (h *Handler) CheckoutRedirect(c *gin.Context) {
-	orderID := c.Query("order_id")
-	if orderID == "" {
-		c.Redirect(http.StatusFound, "/api/v1/payment/plans")
-		return
-	}
+func (h *Handler) RedirectToPlans(c *gin.Context) {
 
-	// Get order details from payment service
-	// Generate a simple Razorpay payment URL and redirect
-	razorpayURL := fmt.Sprintf("https://api.razorpay.com/v1/checkout/embedded?order_id=%s", orderID)
-	c.Redirect(http.StatusFound, razorpayURL)
+	h.logger.Info("Redirecting to payment service plans")
+	c.Redirect(http.StatusFound, "http://localhost:8081/payment/plans")
 }

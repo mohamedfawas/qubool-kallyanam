@@ -135,6 +135,7 @@ func LoadConfig(path string) (*Config, error) {
 	if endpoint := os.Getenv("S3_ENDPOINT"); endpoint != "" {
 		config.Storage.S3.Endpoint = endpoint
 	}
+
 	if region := os.Getenv("S3_REGION"); region != "" {
 		config.Storage.S3.Region = region
 	}

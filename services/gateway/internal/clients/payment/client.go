@@ -29,7 +29,7 @@ func NewClient(address string) (*Client, error) {
 	}, nil
 }
 
-// CreatePaymentOrder creates a payment order for subscription
+// CreatePaymentOrder creates a payment order
 func (c *Client) CreatePaymentOrder(ctx context.Context, planID string) (bool, string, *paymentpb.PaymentOrderData, error) {
 	// Extract user ID from context and add to metadata
 	var md metadata.MD
@@ -52,15 +52,6 @@ func (c *Client) CreatePaymentOrder(ctx context.Context, planID string) (bool, s
 
 // VerifyPayment verifies payment and activates subscription
 func (c *Client) VerifyPayment(ctx context.Context, razorpayOrderID, razorpayPaymentID, razorpaySignature string) (bool, string, *paymentpb.SubscriptionData, error) {
-	// Extract user ID from context and add to metadata
-	var md metadata.MD
-	if userID, ok := ctx.Value("user-id").(string); ok {
-		md = metadata.New(map[string]string{
-			"user-id": userID,
-		})
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-
 	resp, err := c.client.VerifyPayment(ctx, &paymentpb.VerifyPaymentRequest{
 		RazorpayOrderId:   razorpayOrderID,
 		RazorpayPaymentId: razorpayPaymentID,

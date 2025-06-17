@@ -1,0 +1,1 @@
+go run cmd/data-seeder/main.go 100000

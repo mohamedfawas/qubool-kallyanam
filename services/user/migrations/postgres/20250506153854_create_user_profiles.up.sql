@@ -32,10 +32,10 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   id                      BIGSERIAL      PRIMARY KEY,    -- local PK
   user_id                 UUID           NOT NULL UNIQUE,       -- from Auth service
   is_bride                BOOLEAN        NOT NULL DEFAULT FALSE,
-  full_name               VARCHAR(200)   UNIQUE,
+  full_name               VARCHAR(200)   NULL,
   email                   VARCHAR(255)   UNIQUE,
-  phone VARCHAR(20),
-  date_of_birth           DATE           ,
+  phone                   VARCHAR(20)    UNIQUE,
+  date_of_birth           DATE           NULL,
   height_cm               INT            CHECK (height_cm BETWEEN 130 AND 220),
   physically_challenged    BOOLEAN        NOT NULL DEFAULT FALSE,
   community               community_enum NULL,

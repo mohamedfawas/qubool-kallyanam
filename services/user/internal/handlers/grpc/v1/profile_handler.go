@@ -95,12 +95,6 @@ func (h *ProfileHandler) UpdateProfile(ctx context.Context, req *userpb.UpdatePr
 		}, err
 	}
 
-	var dateOfBirth *time.Time
-	if req.GetDateOfBirth() != nil {
-		dob := req.GetDateOfBirth().AsTime()
-		dateOfBirth = &dob
-	}
-
 	var heightCM *int
 	if req.GetHeightCm() > 0 {
 		height := int(req.GetHeightCm())
@@ -112,7 +106,7 @@ func (h *ProfileHandler) UpdateProfile(ctx context.Context, req *userpb.UpdatePr
 		userID,
 		req.GetIsBride(),
 		req.GetFullName(),
-		dateOfBirth,
+		req.GetDateOfBirth(), // Now passing string directly
 		heightCM,
 		req.GetPhysicallyChallenged(),
 		req.GetCommunity(),
@@ -370,7 +364,6 @@ func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProf
 	// Convert proto wrapper types to Go pointers
 	var isBride *bool
 	var fullName *string
-	var dateOfBirth *time.Time
 	var heightCM *int
 	var physicallyChallenged *bool
 	var community *string
@@ -390,9 +383,18 @@ func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProf
 		fullName = &value
 	}
 
-	if req.DateOfBirth != nil && !req.ClearDateOfBirth {
-		dob := req.DateOfBirth.AsTime()
-		dateOfBirth = &dob
+	if req.DateOfBirth != "" && !req.ClearDateOfBirth {
+		// Parse the date string to time.Time
+		dob, err := time.Parse("2006-01-02", req.DateOfBirth)
+		if err != nil {
+			// Handle parse error
+			return &userpb.UpdateProfileResponse{
+				Success: false,
+				Message: "Invalid date format",
+				Error:   "Date must be in YYYY-MM-DD format",
+			}, status.Error(codes.InvalidArgument, "Invalid date format")
+		}
+		req.DateOfBirth = dob.Format("2006-01-02")
 	}
 
 	if req.HeightCm != nil && !req.ClearHeightCm {
@@ -440,7 +442,7 @@ func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProf
 		userID,
 		isBride,
 		fullName,
-		dateOfBirth,
+		req.DateOfBirth, // Pass string directly to service
 		heightCM,
 		physicallyChallenged,
 		community,
@@ -541,7 +543,7 @@ func (h *ProfileHandler) GetProfile(ctx context.Context, req *userpb.GetProfileR
 
 	// Add optional fields if present
 	if profile.DateOfBirth != nil {
-		profileData.DateOfBirth = timestamppb.New(*profile.DateOfBirth)
+		profileData.DateOfBirth = profile.DateOfBirth.Format("2006-01-02")
 	}
 
 	if profile.HeightCM != nil {
@@ -1351,5 +1353,171 @@ func (h *ProfileHandler) DeleteUserVideo(ctx context.Context, req *userpb.Delete
 	return &userpb.DeleteUserVideoResponse{
 		Success: true,
 		Message: "Video deleted successfully",
+	}, nil
+}
+
+func (h *ProfileHandler) GetDetailedProfile(ctx context.Context, req *userpb.GetDetailedProfileRequest) (*userpb.GetDetailedProfileResponse, error) {
+	h.logger.Info("GetDetailedProfile gRPC request", "profileID", req.ProfileId)
+
+	// Validate request
+	if req.ProfileId == 0 {
+		return &userpb.GetDetailedProfileResponse{
+			Success: false,
+			Message: "Invalid profile ID",
+			Error:   "Profile ID must be greater than 0",
+		}, status.Error(codes.InvalidArgument, "Profile ID must be greater than 0")
+	}
+
+	// Call service
+	detailedProfile, err := h.profileService.GetDetailedProfileByID(ctx, req.ProfileId)
+	if err != nil {
+		h.logger.Error("Failed to get detailed profile", "error", err, "profileID", req.ProfileId)
+
+		var errMsg string
+		var statusCode codes.Code
+
+		switch {
+		case errors.Is(err, services.ErrProfileNotFound):
+			errMsg = "Profile not found"
+			statusCode = codes.NotFound
+		case errors.Is(err, services.ErrInvalidInput):
+			errMsg = "Invalid profile ID"
+			statusCode = codes.InvalidArgument
+		default:
+			errMsg = "Failed to get detailed profile"
+			statusCode = codes.Internal
+		}
+
+		return &userpb.GetDetailedProfileResponse{
+			Success: false,
+			Message: "Failed to get detailed profile",
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	// Build the response
+	responseProfile := &userpb.DetailedProfileData{
+		Id:                    uint64(detailedProfile.ID),
+		IsBride:               detailedProfile.IsBride,
+		FullName:              detailedProfile.FullName,
+		PhysicallyChallenged:  detailedProfile.PhysicallyChallenged,
+		Community:             string(detailedProfile.Community),
+		MaritalStatus:         string(detailedProfile.MaritalStatus),
+		Profession:            string(detailedProfile.Profession),
+		ProfessionType:        string(detailedProfile.ProfessionType),
+		HighestEducationLevel: string(detailedProfile.HighestEducationLevel),
+		HomeDistrict:          string(detailedProfile.HomeDistrict),
+		LastLogin:             timestamppb.New(detailedProfile.LastLogin),
+		Age:                   int32(detailedProfile.Age),
+	}
+
+	// Add optional fields
+	if detailedProfile.DateOfBirth != nil {
+		responseProfile.DateOfBirth = detailedProfile.DateOfBirth.Format("2006-01-02")
+	}
+
+	if detailedProfile.HeightCM != nil {
+		responseProfile.HeightCm = int32(*detailedProfile.HeightCM)
+	}
+
+	if detailedProfile.ProfilePictureURL != nil {
+		responseProfile.ProfilePictureUrl = *detailedProfile.ProfilePictureURL
+	}
+
+	// Add partner preferences
+	if detailedProfile.PartnerPreferences != nil {
+		prefs := detailedProfile.PartnerPreferences
+		var minAge, maxAge, minHeight, maxHeight int32
+
+		if prefs.MinAgeYears != nil {
+			minAge = int32(*prefs.MinAgeYears)
+		}
+		if prefs.MaxAgeYears != nil {
+			maxAge = int32(*prefs.MaxAgeYears)
+		}
+		if prefs.MinHeightCM != nil {
+			minHeight = int32(*prefs.MinHeightCM)
+		}
+		if prefs.MaxHeightCM != nil {
+			maxHeight = int32(*prefs.MaxHeightCM)
+		}
+
+		// Convert enum types to strings
+		communities := make([]string, len(prefs.PreferredCommunities))
+		for i, c := range prefs.PreferredCommunities {
+			communities[i] = string(c)
+		}
+
+		maritalStatus := make([]string, len(prefs.PreferredMaritalStatus))
+		for i, s := range prefs.PreferredMaritalStatus {
+			maritalStatus[i] = string(s)
+		}
+
+		professions := make([]string, len(prefs.PreferredProfessions))
+		for i, p := range prefs.PreferredProfessions {
+			professions[i] = string(p)
+		}
+
+		professionTypes := make([]string, len(prefs.PreferredProfessionTypes))
+		for i, pt := range prefs.PreferredProfessionTypes {
+			professionTypes[i] = string(pt)
+		}
+
+		educationLevels := make([]string, len(prefs.PreferredEducationLevels))
+		for i, el := range prefs.PreferredEducationLevels {
+			educationLevels[i] = string(el)
+		}
+
+		homeDistricts := make([]string, len(prefs.PreferredHomeDistricts))
+		for i, hd := range prefs.PreferredHomeDistricts {
+			homeDistricts[i] = string(hd)
+		}
+
+		responseProfile.PartnerPreferences = &userpb.PartnerPreferencesData{
+			MinAgeYears:                minAge,
+			MaxAgeYears:                maxAge,
+			MinHeightCm:                minHeight,
+			MaxHeightCm:                maxHeight,
+			AcceptPhysicallyChallenged: prefs.AcceptPhysicallyChallenged,
+			PreferredCommunities:       communities,
+			PreferredMaritalStatus:     maritalStatus,
+			PreferredProfessions:       professions,
+			PreferredProfessionTypes:   professionTypes,
+			PreferredEducationLevels:   educationLevels,
+			PreferredHomeDistricts:     homeDistricts,
+		}
+	}
+
+	// Add additional photos
+	if len(detailedProfile.AdditionalPhotos) > 0 {
+		photos := make([]*userpb.UserPhotoData, len(detailedProfile.AdditionalPhotos))
+		for i, photo := range detailedProfile.AdditionalPhotos {
+			photos[i] = &userpb.UserPhotoData{
+				PhotoUrl:     photo.PhotoURL,
+				DisplayOrder: int32(photo.DisplayOrder),
+				CreatedAt:    timestamppb.New(photo.CreatedAt),
+			}
+		}
+		responseProfile.AdditionalPhotos = photos
+	}
+
+	// Add intro video
+	if detailedProfile.IntroVideo != nil {
+		video := detailedProfile.IntroVideo
+		responseProfile.IntroVideo = &userpb.UserVideoData{
+			VideoUrl:  video.VideoURL,
+			FileName:  video.FileName,
+			FileSize:  video.FileSize,
+			CreatedAt: timestamppb.New(video.CreatedAt),
+		}
+		if video.DurationSeconds != nil {
+			responseProfile.IntroVideo.DurationSeconds = int32(*video.DurationSeconds)
+		}
+	}
+
+	return &userpb.GetDetailedProfileResponse{
+		Success: true,
+		Message: "Detailed profile retrieved successfully",
+		Profile: responseProfile,
 	}, nil
 }

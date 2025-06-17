@@ -29,12 +29,13 @@ service UserService {
   rpc UploadUserVideo(UploadUserVideoRequest) returns (UploadUserVideoResponse);
   rpc GetUserVideo(GetUserVideoRequest) returns (GetUserVideoResponse);
   rpc DeleteUserVideo(DeleteUserVideoRequest) returns (DeleteUserVideoResponse);
+  rpc GetDetailedProfile(GetDetailedProfileRequest) returns (GetDetailedProfileResponse);
 }
 
 message UpdateProfileRequest {
   bool is_bride = 1;
   string full_name = 2;
-  google.protobuf.Timestamp date_of_birth = 3;
+  string date_of_birth = 3;
   int32 height_cm = 4;
   bool physically_challenged = 5;
   string community = 6;
@@ -54,7 +55,7 @@ message UpdateProfileResponse {
 message PatchProfileRequest {
   google.protobuf.BoolValue is_bride = 1;
   google.protobuf.StringValue full_name = 2;
-  google.protobuf.Timestamp date_of_birth = 3;
+  string date_of_birth = 3;
   google.protobuf.Int32Value height_cm = 4;
   google.protobuf.BoolValue physically_challenged = 5;
   google.protobuf.StringValue community = 6;
@@ -100,7 +101,7 @@ message ProfileData {
   bool is_bride = 2;
   string full_name = 3;
   string phone = 4;
-  google.protobuf.Timestamp date_of_birth = 5;
+  string date_of_birth = 5;
   int32 height_cm = 6;
   bool physically_challenged = 7;
   string community = 8;
@@ -423,4 +424,45 @@ message DeleteUserVideoResponse {
   bool success = 1;
   string message = 2;
   string error = 3;
+}
+
+message GetDetailedProfileRequest {
+  uint64 profile_id = 1; // Profile ID of the user to view
+}
+
+message DetailedProfileData {
+  // Basic Profile Information
+  uint64 id = 1;
+  bool is_bride = 2;
+  string full_name = 3;
+  string date_of_birth = 4;
+  int32 height_cm = 5;
+  bool physically_challenged = 6;
+  string community = 7;
+  string marital_status = 8;
+  string profession = 9;
+  string profession_type = 10;
+  string highest_education_level = 11;
+  string home_district = 12;
+  string profile_picture_url = 13;
+  google.protobuf.Timestamp last_login = 14;
+  
+  // Partner Preferences
+  PartnerPreferencesData partner_preferences = 15;
+  
+  // Additional Photos
+  repeated UserPhotoData additional_photos = 16;
+  
+  // Intro Video
+  UserVideoData intro_video = 17;
+  
+  // Calculated Age
+  int32 age = 18;
+}
+
+message GetDetailedProfileResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  DetailedProfileData profile = 4;
 }

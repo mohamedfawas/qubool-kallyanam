@@ -1,6 +1,12 @@
 grpc:
   port: 50055
 
+http:
+  port: 8081
+  read_timeout_secs: 10
+  write_timeout_secs: 10
+  idle_timeout_secs: 60
+
 database:
   postgres:
     host: localhost
@@ -18,7 +24,9 @@ rabbitmq:
   dsn: "amqp://guest:guest@localhost:5672/"
   exchange_name: "qubool_events"
 
-# Subscription plans configuration (optional, will use defaults if not provided)
+gateway:
+  address: "http://localhost:8080"  # Gateway service address for redirects
+
 plans:
   available:
     premium_365:

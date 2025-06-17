@@ -118,9 +118,15 @@ func ValidateHomeDistrict(district string) error {
 }
 
 // ValidateDateOfBirth ensures user is at least 18 years old
-func ValidateDateOfBirth(dob *time.Time) error {
-	if dob == nil {
+func ValidateDateOfBirth(dateOfBirth string) error {
+	if dateOfBirth == "" {
 		return nil
+	}
+
+	// Parse the date string (YYYY-MM-DD format)
+	dob, err := time.Parse("2006-01-02", dateOfBirth)
+	if err != nil {
+		return errors.New("date of birth must be in YYYY-MM-DD format")
 	}
 
 	minAge := 18

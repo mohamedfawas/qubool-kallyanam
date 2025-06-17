@@ -13,12 +13,15 @@ type PaymentRepository interface {
 	GetPaymentByOrderID(ctx context.Context, orderID string) (*models.Payment, error)
 	GetPaymentByID(ctx context.Context, id uuid.UUID) (*models.Payment, error)
 	UpdatePayment(ctx context.Context, payment *models.Payment) error
-	GetUserPayments(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]*models.Payment, int32, error)
+	GetPaymentsByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*models.Payment, int64, error)
 
 	// Subscription operations
 	CreateSubscription(ctx context.Context, subscription *models.Subscription) error
-	GetUserActiveSubscription(ctx context.Context, userID uuid.UUID) (*models.Subscription, error)
+	GetActiveSubscriptionByUserID(ctx context.Context, userID uuid.UUID) (*models.Subscription, error)
 	GetSubscriptionByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error)
 	UpdateSubscription(ctx context.Context, subscription *models.Subscription) error
-	DeactivateExpiredSubscriptions(ctx context.Context) error
+	GetSubscriptionsByUserID(ctx context.Context, userID uuid.UUID) ([]*models.Subscription, error)
+
+	// Transaction support
+	WithTx(ctx context.Context, fn func(context.Context) error) error
 }

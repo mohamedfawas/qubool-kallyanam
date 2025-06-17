@@ -31,8 +31,8 @@ func (h *Handler) GetProfile(c *gin.Context) {
 
 	// Format date of birth to show only the date part
 	var dateOfBirth string
-	if profileData.DateOfBirth != nil {
-		dateOfBirth = profileData.DateOfBirth.AsTime().Format("2006-01-02")
+	if profileData.DateOfBirth != "" {
+		dateOfBirth = profileData.DateOfBirth
 	}
 
 	// Create an ordered map for the profile data

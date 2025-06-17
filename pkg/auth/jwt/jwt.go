@@ -1,6 +1,8 @@
 package jwt
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -88,7 +90,14 @@ func NewManager(config Config) *Manager {
 	}
 }
 
-// GenerateAccessToken creates a new access token (short-lived).
+// Add this helper function
+func generateTokenID() string {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
+// Update your GenerateAccessToken method
 func (m *Manager) GenerateAccessToken(userID string,
 	role Role,
 	verified bool,
@@ -103,10 +112,11 @@ func (m *Manager) GenerateAccessToken(userID string,
 		Role:     role,
 		Services: services,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.AccessTokenTTL)), // When token expires
-			IssuedAt:  jwt.NewNumericDate(now),                              // When token was issued
-			NotBefore: jwt.NewNumericDate(now),                              // When token becomes valid
-			Issuer:    m.config.Issuer,                                      // Who issued the token
+			ID:        generateTokenID(), // ADD THIS LINE
+			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.AccessTokenTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    m.config.Issuer,
 		},
 	}
 
@@ -117,8 +127,7 @@ func (m *Manager) GenerateAccessToken(userID string,
 	return token.SignedString([]byte(m.config.SecretKey))
 }
 
-// GenerateRefreshToken creates a long-lived refresh token.
-// Used to get a new access token without logging in again.
+// Update your GenerateRefreshToken method
 func (m *Manager) GenerateRefreshToken(userID string) (string, error) {
 	now := indianstandardtime.Now()
 
@@ -126,6 +135,7 @@ func (m *Manager) GenerateRefreshToken(userID string) (string, error) {
 	claims := &Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        generateTokenID(), // ADD THIS LINE
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.config.RefreshTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),

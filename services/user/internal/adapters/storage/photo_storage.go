@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -87,11 +88,12 @@ func NewS3PhotoStorage(s3Config *s3pkg.Config, logger logging.Logger) (*S3PhotoS
 	if s3Config.UseSSL {
 		scheme = "https"
 	}
-	// baseURL is like "http://localhost:9000/photos/"
-	baseURL := fmt.Sprintf("%s://%s/%s/",
-		scheme,
-		strings.TrimPrefix(s3Config.Endpoint, scheme+"://"),
-		s3Config.BucketName)
+	// Use public URL from environment if set, otherwise fall back to endpoint
+	baseURL := os.Getenv("S3_PUBLIC_URL")
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("%s://%s", scheme, strings.TrimPrefix(s3Config.Endpoint, scheme+"://"))
+	}
+	baseURL = fmt.Sprintf("%s/%s/", baseURL, s3Config.BucketName)
 
 	return &S3PhotoStorage{
 		s3Client:   client,

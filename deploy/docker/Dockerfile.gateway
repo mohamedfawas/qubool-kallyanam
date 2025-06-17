@@ -39,8 +39,6 @@ COPY --from=builder /gateway .
 # Copy config file
 COPY services/gateway/configs/config.yaml ./configs/
 
-# Copy static files 
-COPY services/gateway/static/ ./static/
 
 # Expose port
 EXPOSE 8080

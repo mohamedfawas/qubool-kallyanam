@@ -2,7 +2,6 @@ package user
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
@@ -25,17 +24,17 @@ func NewHandler(userClient *user.Client, logger logging.Logger) *Handler {
 }
 
 type UpdateProfileRequest struct {
-	IsBride               bool       `json:"is_bride"`
-	FullName              string     `json:"full_name"`
-	DateOfBirth           *time.Time `json:"date_of_birth"`
-	HeightCM              int        `json:"height_cm"`
-	PhysicallyChallenged  bool       `json:"physically_challenged"`
-	Community             string     `json:"community"`
-	MaritalStatus         string     `json:"marital_status"`
-	Profession            string     `json:"profession"`
-	ProfessionType        string     `json:"profession_type"`
-	HighestEducationLevel string     `json:"highest_education_level"`
-	HomeDistrict          string     `json:"home_district"`
+	IsBride               bool   `json:"is_bride"`
+	FullName              string `json:"full_name"`
+	DateOfBirth           string `json:"date_of_birth"`
+	HeightCM              int    `json:"height_cm"`
+	PhysicallyChallenged  bool   `json:"physically_challenged"`
+	Community             string `json:"community"`
+	MaritalStatus         string `json:"marital_status"`
+	Profession            string `json:"profession"`
+	ProfessionType        string `json:"profession_type"`
+	HighestEducationLevel string `json:"highest_education_level"`
+	HomeDistrict          string `json:"home_district"`
 }
 
 func (h *Handler) UpdateProfile(c *gin.Context) {
@@ -105,7 +104,7 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		}
 	}
 
-	if req.DateOfBirth != nil {
+	if req.DateOfBirth != "" {
 		if err := validation.ValidateDateOfBirth(req.DateOfBirth); err != nil {
 			pkghttp.Error(c, pkghttp.NewBadRequest(err.Error(), nil))
 			return
