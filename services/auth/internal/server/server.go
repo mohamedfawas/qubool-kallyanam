@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -12,17 +13,14 @@ import (
 	"gorm.io/gorm"
 
 	authpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/auth/v1"
-	pgdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
-	"github.com/mohamedfawas/qubool-kallyanam/pkg/messaging/rabbitmq"
-	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/adapters/postgres"
-
-	"time"
-
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
+	pgdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
 	redisdb "github.com/mohamedfawas/qubool-kallyanam/pkg/database/redis"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/messaging/rabbitmq"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/notifications/email"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/security/otp"
+	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/adapters/postgres"
 	redisAdapter "github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/adapters/redis"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/config"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/services"
@@ -30,7 +28,6 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/handlers/health"
 )
 
-// Server represents the gRPC server
 type Server struct {
 	config       *config.Config
 	logger       logging.Logger
@@ -41,9 +38,8 @@ type Server struct {
 	authService  *services.AuthService
 }
 
-// NewServer creates a new gRPC server
 func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
-	// Initialize PostgreSQL client
+
 	pgClient, err := pgdb.NewClient(&pgdb.Config{
 		Host:     cfg.Database.Postgres.Host,
 		Port:     fmt.Sprintf("%d", cfg.Database.Postgres.Port),
@@ -56,7 +52,6 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create postgres client: %w", err)
 	}
 
-	// Initialize Redis client
 	redisClient, err := redisdb.NewClient(&redisdb.Config{
 		Host:     cfg.Database.Redis.Host,
 		Port:     fmt.Sprintf("%d", cfg.Database.Redis.Port),
@@ -67,18 +62,14 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create redis client: %w", err)
 	}
 
-	// Initialize RabbitMQ client
 	rabbitClient, err := rabbitmq.NewClient(cfg.RabbitMQ.DSN, cfg.RabbitMQ.ExchangeName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RabbitMQ client: %w", err)
 	}
 
-	// Create gRPC server with options for better error handling
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
-			// Add logging interceptor
 			createLoggingInterceptor(logger),
-			// Add error interceptor
 			createErrorInterceptor(),
 		),
 	)
@@ -93,17 +84,16 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to register services: %w", err)
 	}
 
-	server := &Server{ // <- Change from direct return to variable
+	server := &Server{
 		config:       cfg,
 		logger:       logger,
 		grpcServer:   grpcServer,
 		pgClient:     pgClient,
 		redisClient:  redisClient,
 		rabbitClient: rabbitClient,
-		authService:  authService, // <- Add this line
+		authService:  authService,
 	}
 
-	// Subscribe to subscription events (add this block)
 	if err := server.subscribeToSubscriptionEvents(); err != nil {
 		return nil, fmt.Errorf("failed to subscribe to events: %w", err)
 	}
@@ -111,7 +101,6 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 	return server, nil
 }
 
-// registerServices sets up and registers all gRPC services
 func registerServices(
 	grpcServer *grpc.Server,
 	db *gorm.DB,
@@ -120,11 +109,9 @@ func registerServices(
 	logger logging.Logger,
 	rabbitClient *rabbitmq.Client,
 ) (*services.AuthService, error) {
-	// Register health service
-	// Health service needs the raw Redis client
+
 	health.RegisterHealthService(grpcServer, db, redisClient.GetClient())
 
-	// Create JWT Manager
 	jwtManager := jwt.NewManager(jwt.Config{
 		SecretKey:       cfg.Auth.JWT.SecretKey,
 		AccessTokenTTL:  time.Duration(cfg.Auth.JWT.AccessTokenMinutes) * time.Minute,
@@ -132,19 +119,16 @@ func registerServices(
 		Issuer:          cfg.Auth.JWT.Issuer,
 	})
 
-	// Set up OTP components
 	otpConfig := otp.DefaultConfig()
 	otpGenerator := otp.NewGenerator(otpConfig)
 
-	// Create repositories
+	userRepo := postgres.NewUserRepository(db)
 	registrationRepo := postgres.NewRegistrationRepository(db)
-	tokenRepo := redisAdapter.NewTokenRepository(redisClient.GetClient())
 	adminRepo := postgres.NewAdminRepository(db)
 
-	// Create OTP repository with our Redis client wrapper
 	otpRepo := redisAdapter.NewOTPRepository(redisClient)
+	tokenRepo := redisAdapter.NewTokenRepository(redisClient)
 
-	// Set up email client
 	emailClient, err := email.NewClient(email.Config{
 		SMTPHost:     cfg.Email.SMTPHost,
 		SMTPPort:     cfg.Email.SMTPPort,
@@ -157,9 +141,9 @@ func registerServices(
 		return nil, fmt.Errorf("failed to create email client: %w", err)
 	}
 
-	// Create registration service with OTP repository
 	registrationService := services.NewRegistrationService(
 		registrationRepo,
+		userRepo,
 		otpRepo,
 		otpGenerator,
 		otpConfig.ExpiryTime,
@@ -167,22 +151,19 @@ func registerServices(
 		logger,
 	)
 
-	// Create admin service
 	adminService := services.NewAdminService(adminRepo, logger)
 
-	// Initialize default admin
 	if err := adminService.InitializeDefaultAdmin(
 		context.Background(),
 		cfg.Admin.DefaultEmail,
 		cfg.Admin.DefaultPassword,
 	); err != nil {
 		logger.Error("Failed to initialize default admin", "error", err)
-		// Continue execution, don't fail startup
+
 	}
 
-	// Create auth service with admin repository
 	authService := services.NewAuthService(
-		registrationRepo,
+		userRepo,
 		tokenRepo,
 		adminRepo,
 		jwtManager,
@@ -192,16 +173,16 @@ func registerServices(
 		rabbitClient,
 	)
 
-	// Create and register auth handler
-	authHandler := v1.NewAuthHandler(registrationService,
+	authHandler := v1.NewAuthHandler(
+		registrationService,
 		authService,
-		logger)
+		logger,
+	)
 	authpb.RegisterAuthServiceServer(grpcServer, authHandler)
 
 	return authService, nil
 }
 
-// Create a logging interceptor for gRPC
 func createLoggingInterceptor(logger logging.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		logger.Info("gRPC request", "method", info.FullMethod)
@@ -213,24 +194,21 @@ func createLoggingInterceptor(logger logging.Logger) grpc.UnaryServerInterceptor
 	}
 }
 
-// Create an error interceptor for gRPC
 func createErrorInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		resp, err := handler(ctx, req)
 		if err != nil {
-			// If the error is already a gRPC status error, return it as is
+
 			if _, ok := status.FromError(err); ok {
 				return resp, err
 			}
 
-			// Otherwise, convert it to an internal server error
 			return resp, status.Error(codes.Internal, "Internal server error")
 		}
 		return resp, nil
 	}
 }
 
-// Start starts the gRPC server
 func (s *Server) Start() error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.config.GRPC.Port))
 	if err != nil {
@@ -241,7 +219,6 @@ func (s *Server) Start() error {
 	return s.grpcServer.Serve(lis)
 }
 
-// Stop stops the gRPC server
 func (s *Server) Stop() {
 	s.logger.Info("Stopping gRPC server")
 	s.grpcServer.GracefulStop()
@@ -250,24 +227,20 @@ func (s *Server) Stop() {
 	if s.pgClient != nil {
 		s.pgClient.Close()
 	}
-
 	if s.redisClient != nil {
 		s.redisClient.Close()
 	}
-
 	if s.rabbitClient != nil {
 		s.rabbitClient.Close()
 	}
 }
 
 func (s *Server) subscribeToSubscriptionEvents() error {
-	// Subscribe to subscription activation events
 	err := s.rabbitClient.Subscribe("subscription.activated", s.handleSubscriptionEvent)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to subscription.activated: %w", err)
 	}
 
-	// Subscribe to subscription extension events
 	err = s.rabbitClient.Subscribe("subscription.extended", s.handleSubscriptionEvent)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to subscription.extended: %w", err)
@@ -277,7 +250,6 @@ func (s *Server) subscribeToSubscriptionEvents() error {
 	return nil
 }
 
-// handleSubscriptionEvent processes subscription events to update premium status
 func (s *Server) handleSubscriptionEvent(message []byte) error {
 	var event struct {
 		UserID       string    `json:"user_id"`
@@ -297,7 +269,6 @@ func (s *Server) handleSubscriptionEvent(message []byte) error {
 		"eventType", event.EventType,
 		"premiumUntil", event.PremiumUntil)
 
-	// Update premium status
 	ctx := context.Background()
 	err := s.authService.UpdateUserPremiumStatus(ctx, event.UserID, event.PremiumUntil)
 	if err != nil {

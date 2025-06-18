@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
@@ -11,10 +10,7 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/validation"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/repositories"
-)
-
-var (
-	ErrInvalidAdminInput = errors.New("invalid admin input parameters")
+	autherrors "github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/errors"
 )
 
 type AdminService struct {
@@ -34,34 +30,29 @@ func NewAdminService(
 
 // InitializeDefaultAdmin checks if any admin exists and creates a default one if not
 func (s *AdminService) InitializeDefaultAdmin(ctx context.Context, defaultEmail, defaultPassword string) error {
-	// Check if any admin exists
 	exists, err := s.adminRepo.CheckAdminExists(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to check if admin exists: %w", err)
 	}
 
-	// If admin already exists, nothing to do
 	if exists {
 		s.logger.Info("Admin already exists, skipping default admin creation")
 		return nil
 	}
 
-	// Validate admin input
 	if !validation.ValidateEmail(defaultEmail) {
-		return fmt.Errorf("%w: invalid admin email format", ErrInvalidAdminInput)
+		return fmt.Errorf("%w: invalid admin email format", autherrors.ErrInvalidAdminInput)
 	}
 
 	if !validation.ValidatePassword(defaultPassword, validation.DefaultPasswordPolicy()) {
-		return fmt.Errorf("%w: admin password does not meet requirements", ErrInvalidAdminInput)
+		return fmt.Errorf("%w: admin password does not meet requirements", autherrors.ErrInvalidAdminInput)
 	}
 
-	// Hash password
 	hashedPassword, err := encryption.HashPassword(defaultPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash admin password: %w", err)
 	}
 
-	// Create admin
 	now := indianstandardtime.Now()
 	admin := &models.Admin{
 		Email:        defaultEmail,

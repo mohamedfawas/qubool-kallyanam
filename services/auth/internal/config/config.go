@@ -8,51 +8,27 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config represents the application configuration
 type Config struct {
-	GRPC     GRPCConfig     `mapstructure:"grpc"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Email    EmailConfig    `mapstructure:"email"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Admin    AdminConfig    `mapstructure:"admin"`
-	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
+	GRPC         GRPCConfig         `mapstructure:"grpc"`
+	Database     DatabaseConfig     `mapstructure:"database"`
+	Email        EmailConfig        `mapstructure:"email"`
+	Auth         AuthConfig         `mapstructure:"auth"`
+	Admin        AdminConfig        `mapstructure:"admin"`
+	RabbitMQ     RabbitMQConfig     `mapstructure:"rabbitmq"`
+	OTP          OTPConfig          `mapstructure:"otp"`
+	Registration RegistrationConfig `mapstructure:"registration"`
+	Security     SecurityConfig     `mapstructure:"security"`
 }
 
-type RabbitMQConfig struct {
-	DSN          string `mapstructure:"dsn"`
-	ExchangeName string `mapstructure:"exchange_name"`
-}
-
-// AuthConfig contains authentication-related configuration
-type AuthConfig struct {
-	JWT JWTConfig `mapstructure:"jwt"`
-}
-
-// JWTConfig contains JWT configuration
-type JWTConfig struct {
-	SecretKey          string `mapstructure:"secret_key"`
-	AccessTokenMinutes int    `mapstructure:"access_token_minutes"`
-	RefreshTokenDays   int    `mapstructure:"refresh_token_days"`
-	Issuer             string `mapstructure:"issuer"`
-}
-
-// GRPCConfig represents gRPC server configuration
 type GRPCConfig struct {
 	Port int `mapstructure:"port"`
 }
 
-type AdminConfig struct {
-	DefaultEmail    string `mapstructure:"default_email"`
-	DefaultPassword string `mapstructure:"default_password"`
-}
-
-// DatabaseConfig represents database configuration
 type DatabaseConfig struct {
 	Postgres PostgresConfig `mapstructure:"postgres"`
 	Redis    RedisConfig    `mapstructure:"redis"`
 }
 
-// PostgresConfig represents PostgreSQL configuration
 type PostgresConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
@@ -62,7 +38,6 @@ type PostgresConfig struct {
 	SSLMode  string `mapstructure:"sslmode"`
 }
 
-// RedisConfig represents Redis configuration
 type RedisConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
@@ -70,7 +45,6 @@ type RedisConfig struct {
 	DB       int    `mapstructure:"db"`
 }
 
-// EmailConfig contains email service configuration
 type EmailConfig struct {
 	SMTPHost  string `mapstructure:"smtp_host"`
 	SMTPPort  int    `mapstructure:"smtp_port"`
@@ -80,7 +54,40 @@ type EmailConfig struct {
 	FromName  string `mapstructure:"from_name"`
 }
 
-// LoadConfig loads configuration from file and environment variables
+type AuthConfig struct {
+	JWT JWTConfig `mapstructure:"jwt"`
+}
+
+type JWTConfig struct {
+	SecretKey          string `mapstructure:"secret_key"`
+	AccessTokenMinutes int    `mapstructure:"access_token_minutes"`
+	RefreshTokenDays   int    `mapstructure:"refresh_token_days"`
+	Issuer             string `mapstructure:"issuer"`
+}
+
+type AdminConfig struct {
+	DefaultEmail    string `mapstructure:"default_email"`
+	DefaultPassword string `mapstructure:"default_password"`
+}
+
+type RabbitMQConfig struct {
+	DSN          string `mapstructure:"dsn"`
+	ExchangeName string `mapstructure:"exchange_name"`
+}
+
+type OTPConfig struct {
+	Length        int `mapstructure:"length"`
+	ExpiryMinutes int `mapstructure:"expiry_minutes"`
+}
+
+type RegistrationConfig struct {
+	PendingExpiryHours int `mapstructure:"pending_expiry_hours"`
+}
+
+type SecurityConfig struct {
+	PasswordMinLength int `mapstructure:"password_min_length"`
+}
+
 func LoadConfig(path string) (*Config, error) {
 	viper.SetConfigFile(path)
 	viper.AutomaticEnv()
@@ -94,14 +101,13 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Override with environment variables if they exist
 	if host := os.Getenv("DB_HOST"); host != "" {
 		config.Database.Postgres.Host = host
 	}
 	if host := os.Getenv("REDIS_HOST"); host != "" {
 		config.Database.Redis.Host = host
 	}
-	// Add email environment variables overrides
+
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
 		config.Email.SMTPHost = smtpHost
 	}

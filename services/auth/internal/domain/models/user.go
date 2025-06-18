@@ -10,8 +10,8 @@ import (
 // User represents a user in the system
 type User struct {
 	ID           uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	Email        string         `gorm:"size:255;not null;uniqueIndex:idx_users_email"`
-	Phone        string         `gorm:"size:20;not null;uniqueIndex:idx_users_phone"`
+	Email        string         `gorm:"size:255;not null;uniqueIndex:users_email_unique_active,where:deleted_at IS NULL"`
+	Phone        string         `gorm:"size:20;not null;uniqueIndex:users_phone_unique_active,where:deleted_at IS NULL"`
 	PasswordHash string         `gorm:"size:255;not null"`
 	Verified     bool           `gorm:"not null;default:false"`
 	PremiumUntil *time.Time     `gorm:"default:null"`
