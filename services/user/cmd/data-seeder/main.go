@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/database/postgres"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/config"
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/constants"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/models"
 	"gorm.io/gorm"
 )
@@ -20,6 +21,8 @@ const (
 	BATCH_SIZE      = 1000   // Insert 1000 records per batch
 	DEFAULT_RECORDS = 100000 // Default: 1 lakh records
 )
+
+// ... existing main() and setupDatabase() functions remain unchanged ...
 
 func main() {
 	// Get number of records from command line argument
@@ -88,6 +91,8 @@ func setupDatabase() (*gorm.DB, error) {
 
 	return db, nil
 }
+
+// ... generateBulkUserProfiles() and generateUserProfileBatch() remain unchanged ...
 
 func generateBulkUserProfiles(db *gorm.DB, totalRecords int) error {
 	batches := (totalRecords + BATCH_SIZE - 1) / BATCH_SIZE // Ceiling division
@@ -177,7 +182,88 @@ func generateRandomUserProfile(batchNumber, recordIndex int) models.UserProfile 
 	}
 }
 
-// Random data generators with proper random source
+// ... generateRandomName() function remains unchanged ...
+
+// Updated random data generators to use constants package:
+
+func getRandomCommunity(r *rand.Rand) constants.Community {
+	communities := []constants.Community{
+		constants.CommunitySunni,
+		constants.CommunityMujahid,
+		constants.CommunityTabligh,
+		constants.CommunityJamateIslami,
+		constants.CommunityShia,
+		constants.CommunityMuslim,
+	}
+	return communities[r.Intn(len(communities))]
+}
+
+func getRandomMaritalStatus(r *rand.Rand) constants.MaritalStatus {
+	statuses := []constants.MaritalStatus{
+		constants.MaritalNeverMarried,
+		constants.MaritalDivorced,
+		constants.MaritalNikkahDivorce,
+		constants.MaritalWidowed,
+	}
+	return statuses[r.Intn(len(statuses))]
+}
+
+func getRandomProfession(r *rand.Rand) constants.Profession {
+	professions := []constants.Profession{
+		constants.ProfessionStudent,
+		constants.ProfessionDoctor,
+		constants.ProfessionEngineer,
+		constants.ProfessionFarmer,
+		constants.ProfessionTeacher,
+	}
+	return professions[r.Intn(len(professions))]
+}
+
+func getRandomProfessionType(r *rand.Rand) constants.ProfessionType {
+	types := []constants.ProfessionType{
+		constants.ProfessionTypeFullTime,
+		constants.ProfessionTypePartTime,
+		constants.ProfessionTypeFreelance,
+		constants.ProfessionTypeSelfEmployed,
+		constants.ProfessionTypeNotWorking,
+	}
+	return types[r.Intn(len(types))]
+}
+
+func getRandomEducationLevel(r *rand.Rand) constants.EducationLevel {
+	levels := []constants.EducationLevel{
+		constants.EducationLessThanHighSchool,
+		constants.EducationHighSchool,
+		constants.EducationHigherSecondary,
+		constants.EducationUnderGraduation,
+		constants.EducationPostGraduation,
+	}
+	return levels[r.Intn(len(levels))]
+}
+
+func getRandomHomeDistrict(r *rand.Rand) constants.HomeDistrict {
+	districts := []constants.HomeDistrict{
+		constants.DistrictThiruvananthapuram,
+		constants.DistrictKollam,
+		constants.DistrictPathanamthitta,
+		constants.DistrictAlappuzha,
+		constants.DistrictKottayam,
+		constants.DistrictErnakulam,
+		constants.DistrictThrissur,
+		constants.DistrictPalakkad,
+		constants.DistrictMalappuram,
+		constants.DistrictKozhikode,
+		constants.DistrictWayanad,
+		constants.DistrictKannur,
+		constants.DistrictKasaragod,
+		constants.DistrictIdukki,
+	}
+	return districts[r.Intn(len(districts))]
+}
+
+func randomChoice(r *rand.Rand, choices []string) string {
+	return choices[r.Intn(len(choices))]
+}
 
 func generateRandomName(r *rand.Rand) string {
 	firstNames := []string{
@@ -199,83 +285,4 @@ func generateRandomName(r *rand.Rand) string {
 	return fmt.Sprintf("%s %s",
 		firstNames[r.Intn(len(firstNames))],
 		lastNames[r.Intn(len(lastNames))])
-}
-
-func getRandomCommunity(r *rand.Rand) models.Community {
-	communities := []models.Community{
-		models.CommunitySunni,
-		models.CommunityMujahid,
-		models.CommunityTabligh,
-		models.CommunityJamateIslami,
-		models.CommunityShia,
-		models.CommunityMuslim,
-	}
-	return communities[r.Intn(len(communities))]
-}
-
-func getRandomMaritalStatus(r *rand.Rand) models.MaritalStatus {
-	statuses := []models.MaritalStatus{
-		models.MaritalNeverMarried,
-		models.MaritalDivorced,
-		models.MaritalNikkahDivorce,
-		models.MaritalWidowed,
-	}
-	return statuses[r.Intn(len(statuses))]
-}
-
-func getRandomProfession(r *rand.Rand) models.Profession {
-	professions := []models.Profession{
-		models.ProfessionStudent,
-		models.ProfessionDoctor,
-		models.ProfessionEngineer,
-		models.ProfessionFarmer,
-		models.ProfessionTeacher,
-	}
-	return professions[r.Intn(len(professions))]
-}
-
-func getRandomProfessionType(r *rand.Rand) models.ProfessionType {
-	types := []models.ProfessionType{
-		models.ProfessionTypeFullTime,
-		models.ProfessionTypePartTime,
-		models.ProfessionTypeFreelance,
-		models.ProfessionTypeSelfEmployed,
-		models.ProfessionTypeNotWorking,
-	}
-	return types[r.Intn(len(types))]
-}
-
-func getRandomEducationLevel(r *rand.Rand) models.EducationLevel {
-	levels := []models.EducationLevel{
-		models.EducationLessThanHighSchool,
-		models.EducationHighSchool,
-		models.EducationHigherSecondary,
-		models.EducationUnderGraduation,
-		models.EducationPostGraduation,
-	}
-	return levels[r.Intn(len(levels))]
-}
-
-func getRandomHomeDistrict(r *rand.Rand) models.HomeDistrict {
-	districts := []models.HomeDistrict{
-		models.DistrictThiruvananthapuram,
-		models.DistrictKollam,
-		models.DistrictPathanamthitta,
-		models.DistrictAlappuzha,
-		models.DistrictKottayam,
-		models.DistrictErnakulam,
-		models.DistrictThrissur,
-		models.DistrictPalakkad,
-		models.DistrictMalappuram,
-		models.DistrictKozhikode,
-		models.DistrictWayanad,
-		models.DistrictKannur,
-		models.DistrictKasaragod,
-		models.DistrictIdukki,
-	}
-	return districts[r.Intn(len(districts))]
-}
-
-func randomChoice(r *rand.Rand, choices []string) string {
-	return choices[r.Intn(len(choices))]
 }

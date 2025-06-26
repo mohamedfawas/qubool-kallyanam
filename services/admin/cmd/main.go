@@ -12,12 +12,7 @@ import (
 
 func main() {
 	// Load configuration
-	configPath := "./configs/config.yaml"
-	if envPath := os.Getenv("CONFIG_PATH"); envPath != "" {
-		configPath = envPath
-	}
-
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

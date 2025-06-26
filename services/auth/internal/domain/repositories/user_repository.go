@@ -15,4 +15,19 @@ type UserRepository interface {
 	UpdateLastLogin(ctx context.Context, userID string) error
 	UpdatePremiumUntil(ctx context.Context, userID string, premiumUntil time.Time) error
 	IsRegistered(ctx context.Context, field, value string) (bool, error)
+	GetUsers(ctx context.Context, params GetUsersParams) ([]*models.User, int64, error)
+}
+
+type GetUsersParams struct {
+	Limit           int
+	Offset          int
+	SortBy          string
+	SortOrder       string
+	Status          string
+	VerifiedOnly    *bool
+	PremiumOnly     *bool
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	LastLoginAfter  *time.Time
+	LastLoginBefore *time.Time
 }

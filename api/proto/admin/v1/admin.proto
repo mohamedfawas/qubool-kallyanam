@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+package admin.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/mohamedfawas/qubool-kallyanam/api/proto/admin/v1;adminpb";
+
+service AdminService {
+  // Get list of users with filtering and pagination
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+  
+  // Get detailed information about a specific user by UUID, email, or phone
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+}
+
+// Request for getting users list
+message GetUsersRequest {
+  int32 limit = 1;                    // Number of users to return (default: 20, max: 100)
+  int32 offset = 2;                   // Pagination offset (default: 0)
+  string sort_by = 3;                 // Sort field: "created_at", "last_login_at", "email" (default: "created_at")
+  string sort_order = 4;              // Sort order: "asc", "desc" (default: "desc")
+  
+  // Boolean filters (optional - if not set, returns all)
+  optional bool is_active = 5;        // Filter by active status: true/false
+  optional bool verified_only = 6;    // Filter by verification status: true/false  
+  optional bool premium_only = 7;     // Filter by premium status: true/false
+  
+  // Date filters (optional)
+  google.protobuf.Timestamp created_after = 8;
+  google.protobuf.Timestamp created_before = 9;
+  google.protobuf.Timestamp last_login_after = 10;
+  google.protobuf.Timestamp last_login_before = 11;
+}
+
+// Response for getting users list
+message GetUsersResponse {
+  bool success = 1;
+  string message = 2;
+  repeated UserSummary users = 3;      // ✅ Changed from AdminUserData
+  Pagination pagination = 4;          // ✅ Simplified from PaginationData
+}
+
+// Request for getting single user (by UUID, email, or phone)
+message GetUserRequest {
+  string identifier = 1;              // Can be UUID, email, or phone number
+  string identifier_type = 2;         // "uuid", "email", or "phone" (optional - auto-detect if not provided)
+}
+
+// Response for getting single user
+message GetUserResponse {
+  bool success = 1;
+  string message = 2;
+  UserDetails user = 3;               // ✅ Changed from AdminUserDetails, simplified field name
+}
+
+// Basic user info for listing (industry standard: summary/list item)
+message UserSummary {
+  string id = 1;                      // User UUID from auth service
+  string email = 2;
+  string phone = 3;
+  bool verified = 4;
+  bool is_active = 5;
+  bool is_premium = 6;                // Calculated from premium_until field
+  google.protobuf.Timestamp premium_until = 7;
+  google.protobuf.Timestamp last_login_at = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// Detailed user information (auth + user services combined)
+message UserDetails {
+  // Auth service data (always present)
+  AuthData auth = 1;
+  
+  // User service data (optional - might not exist)
+  optional DetailedProfileData profile = 2;
+}
+
+// Auth service user data (industry standard: no redundant "User" in name)
+message AuthData {
+  string id = 1;
+  string email = 2;
+  string phone = 3;
+  bool verified = 4;
+  bool is_active = 5;
+  bool is_premium = 6;
+  google.protobuf.Timestamp premium_until = 7;
+  google.protobuf.Timestamp last_login_at = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// User profile data from user service (industry standard: clear, concise naming)
+message DetailedProfileData {
+  // Basic Profile Information
+  uint64 id = 1;
+  bool is_bride = 2;
+  string full_name = 3;
+  string date_of_birth = 4;
+  int32 height_cm = 5;
+  bool physically_challenged = 6;
+  string community = 7;
+  string marital_status = 8;
+  string profession = 9;
+  string profession_type = 10;
+  string highest_education_level = 11;
+  string home_district = 12;
+  string profile_picture_url = 13;
+  google.protobuf.Timestamp last_login = 14;
+  
+  // Partner Preferences
+  PartnerPreferencesData partner_preferences = 15;
+  
+  // Additional Photos
+  repeated UserPhotoData additional_photos = 16;
+  
+  // Intro Video
+  UserVideoData intro_video = 17;
+  
+  // Calculated Age
+  int32 age = 18;
+}
+
+message UserVideoData {
+  string video_url = 1;
+  string file_name = 2;
+  int64 file_size = 3;
+  int32 duration_seconds = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message UserPhotoData {
+  string photo_url = 1;
+  int32 display_order = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message PartnerPreferencesData {
+  int32 min_age_years = 1;
+  int32 max_age_years = 2;
+  int32 min_height_cm = 3;
+  int32 max_height_cm = 4;
+  bool accept_physically_challenged = 5;
+  repeated string preferred_communities = 6;
+  repeated string preferred_marital_status = 7;
+  repeated string preferred_professions = 8;
+  repeated string preferred_profession_types = 9;
+  repeated string preferred_education_levels = 10;
+  repeated string preferred_home_districts = 11;
+}
+
+
+// Pagination information (industry standard: simple name)
+message Pagination {
+  int32 total = 1;                    // Total number of records
+  int32 limit = 2;                    // Requested limit
+  int32 offset = 3;                   // Requested offset
+  bool has_more = 4;                  // Whether there are more records
+  int32 total_pages = 5;              // Total number of pages
+  int32 current_page = 6;             // Current page number
+}

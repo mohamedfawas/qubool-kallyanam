@@ -10,46 +10,58 @@ import (
 // Config represents the application configuration
 type Config struct {
 	GRPC     GRPCConfig     `mapstructure:"grpc"`
-	Database DatabaseConfig `mapstructure:"database"`
+	Services ServicesConfig `mapstructure:"services"`
 }
 
-// GRPCConfig represents gRPC server configuration
 type GRPCConfig struct {
 	Port int `mapstructure:"port"`
 }
 
-// DatabaseConfig represents database configuration
-type DatabaseConfig struct {
-	Postgres PostgresConfig `mapstructure:"postgres"`
+// Only auth and user services needed
+type ServicesConfig struct {
+	Auth ServiceConfig `mapstructure:"auth"`
+	User ServiceConfig `mapstructure:"user"`
 }
 
-// PostgresConfig represents PostgreSQL configuration
-type PostgresConfig struct {
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
-	DBName   string `mapstructure:"dbname"`
-	SSLMode  string `mapstructure:"sslmode"`
+type ServiceConfig struct {
+	Address string `mapstructure:"address"`
 }
 
-// LoadConfig loads configuration from file and environment variables
-func LoadConfig(path string) (*Config, error) {
-	viper.SetConfigFile(path)
+func LoadConfig() (*Config, error) {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath("./configs")
+	viper.AddConfigPath(".")
+
+	// Environment variable support
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, fmt.Errorf("unable to decode into struct: %w", err)
 	}
 
-	// Override with environment variables if they exist
-	if host := os.Getenv("DB_HOST"); host != "" {
-		config.Database.Postgres.Host = host
+	// Validate required fields
+	if config.GRPC.Port == 0 {
+		config.GRPC.Port = 50052 // Default admin service port
+	}
+
+	if config.Services.Auth.Address == "" {
+		config.Services.Auth.Address = os.Getenv("AUTH_SERVICE_ADDRESS")
+		if config.Services.Auth.Address == "" {
+			return nil, fmt.Errorf("auth service address is required")
+		}
+	}
+
+	if config.Services.User.Address == "" {
+		config.Services.User.Address = os.Getenv("USER_SERVICE_ADDRESS")
+		if config.Services.User.Address == "" {
+			return nil, fmt.Errorf("user service address is required")
+		}
 	}
 
 	return &config, nil

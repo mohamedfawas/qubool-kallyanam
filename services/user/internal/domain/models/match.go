@@ -4,22 +4,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/constants"
 	"gorm.io/gorm"
 )
 
 // MatchStatus represents the action a user takes on a potential match
-type MatchStatus string
-
-const (
-	// MatchStatusLiked indicates the user liked the profile
-	MatchStatusLiked MatchStatus = "liked"
-
-	// MatchStatusDisliked indicates the user disliked the profile
-	MatchStatusDisliked MatchStatus = "disliked"
-
-	// MatchStatusPassed indicates the user passed on the profile
-	MatchStatusPassed MatchStatus = "passed"
-)
+type MatchStatus = constants.MatchStatus
 
 // ProfileMatch represents a user's action on another profile
 type ProfileMatch struct {

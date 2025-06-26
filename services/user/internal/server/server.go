@@ -1,4 +1,3 @@
-// user/internal/server/server.go
 package server
 
 import (
@@ -42,6 +41,15 @@ type Server struct {
 	notificationService *services.NotificationService
 	jwtManager          *jwt.Manager
 	photoStorage        storage.PhotoStorage
+}
+
+// CompositeHandler combines all specialized handlers
+type CompositeHandler struct {
+	*v1.ProfileHandler
+	*v1.PartnerPreferencesHandler
+	*v1.PhotoHandler
+	*v1.VideoHandler
+	*v1.MatchHandler
 }
 
 // NewServer creates a new gRPC server
@@ -105,9 +113,12 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	// Register health service
 	health.RegisterHealthService(grpcServer, pgClient.DB, redisClient.GetClient())
 
-	// Create repositories
+	// Create repositories with correct constructors
 	profileRepo := postgres.NewProfileRepository(pgClient.DB)
-	matchRepo := postgres.NewMatchRepository(pgClient.DB, cfg)
+	partnerPreferencesRepo := postgres.NewPartnerPreferencesRepository(pgClient.DB)
+	photoRepo := postgres.NewPhotoRepository(pgClient.DB)
+	videoRepo := postgres.NewVideoRepository(pgClient.DB)
+	matchRepo := postgres.NewMatchRepository(pgClient.DB) // Fixed: Only takes *gorm.DB
 
 	// Create email client
 	emailClient, err := email.NewClient(email.Config{
@@ -122,9 +133,34 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create email client: %w", err)
 	}
 
-	// Create services
-	profileService := services.NewProfileService(profileRepo, logger)
-	photoService := services.NewPhotoService(profileRepo, photoStorage, logger)
+	// Create services with correct constructors
+	profileService := services.NewProfileService(
+		profileRepo,
+		partnerPreferencesRepo,
+		photoRepo,
+		videoRepo,
+		logger,
+	)
+
+	partnerPreferencesService := services.NewPartnerPreferencesService(
+		profileRepo,
+		partnerPreferencesRepo,
+		logger,
+	)
+
+	photoService := services.NewPhotoService(
+		profileRepo,
+		photoRepo,
+		photoStorage,
+		logger,
+	)
+
+	videoService := services.NewVideoService(
+		profileRepo,
+		videoRepo,
+		photoStorage,
+		logger,
+	)
 
 	notificationService := services.NewNotificationService(
 		profileRepo,
@@ -135,6 +171,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	matchmakingService := services.NewMatchmakingService(
 		matchRepo,
 		profileRepo,
+		partnerPreferencesRepo,
 		notificationService,
 		logger,
 		cfg,
@@ -148,16 +185,48 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		Issuer:          cfg.Auth.JWT.Issuer,
 	})
 
-	// Create and register profile handler
+	// Create modular handlers
 	profileHandler := v1.NewProfileHandler(
 		profileService,
+		jwtManager,
+		logger,
+	)
+
+	partnerPreferencesHandler := v1.NewPartnerPreferencesHandler(
+		partnerPreferencesService,
+		jwtManager,
+		logger,
+	)
+
+	photoHandler := v1.NewPhotoHandler(
 		photoService,
+		jwtManager,
+		logger,
+	)
+
+	videoHandler := v1.NewVideoHandler(
+		videoService,
+		jwtManager,
+		logger,
+	)
+
+	matchHandler := v1.NewMatchHandler(
 		matchmakingService,
 		jwtManager,
 		logger,
 	)
 
-	userpb.RegisterUserServiceServer(grpcServer, profileHandler)
+	// Create composite handler to combine all handlers
+	compositeHandler := &CompositeHandler{
+		ProfileHandler:            profileHandler,
+		PartnerPreferencesHandler: partnerPreferencesHandler,
+		PhotoHandler:              photoHandler,
+		VideoHandler:              videoHandler,
+		MatchHandler:              matchHandler,
+	}
+
+	// Register the composite handler
+	userpb.RegisterUserServiceServer(grpcServer, compositeHandler)
 
 	// Create server instance
 	server := &Server{

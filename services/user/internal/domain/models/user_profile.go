@@ -5,92 +5,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/constants"
 	"gorm.io/gorm"
 )
 
-const DefaultNotMentioned = "not_mentioned"
-
-// Enum type definitions matching PostgreSQL enums
-// Community defines the community_enum type
-type Community string
-
-const (
-	CommunitySunni        Community = "sunni"
-	CommunityMujahid      Community = "mujahid"
-	CommunityTabligh      Community = "tabligh"
-	CommunityJamateIslami Community = "jamate_islami"
-	CommunityShia         Community = "shia"
-	CommunityMuslim       Community = "muslim"
-	CommunityNotMentioned Community = DefaultNotMentioned
-)
-
-// MaritalStatus defines the marital_status_enum type
-type MaritalStatus string
-
-const (
-	MaritalNeverMarried  MaritalStatus = "never_married"
-	MaritalDivorced      MaritalStatus = "divorced"
-	MaritalNikkahDivorce MaritalStatus = "nikkah_divorce"
-	MaritalWidowed       MaritalStatus = "widowed"
-	MaritalNotMentioned  MaritalStatus = DefaultNotMentioned
-)
-
-// Profession defines the profession_enum type
-type Profession string
-
-const (
-	ProfessionStudent      Profession = "student"
-	ProfessionDoctor       Profession = "doctor"
-	ProfessionEngineer     Profession = "engineer"
-	ProfessionFarmer       Profession = "farmer"
-	ProfessionTeacher      Profession = "teacher"
-	ProfessionNotMentioned Profession = DefaultNotMentioned
-)
-
-// ProfessionType defines the profession_type_enum type
-type ProfessionType string
-
-const (
-	ProfessionTypeFullTime     ProfessionType = "full_time"
-	ProfessionTypePartTime     ProfessionType = "part_time"
-	ProfessionTypeFreelance    ProfessionType = "freelance"
-	ProfessionTypeSelfEmployed ProfessionType = "self_employed"
-	ProfessionTypeNotWorking   ProfessionType = "not_working"
-	ProfessionTypeNotMentioned ProfessionType = DefaultNotMentioned
-)
-
-// EducationLevel defines the education_level_enum type
-type EducationLevel string
-
-const (
-	EducationLessThanHighSchool EducationLevel = "less_than_high_school"
-	EducationHighSchool         EducationLevel = "high_school"
-	EducationHigherSecondary    EducationLevel = "higher_secondary"
-	EducationUnderGraduation    EducationLevel = "under_graduation"
-	EducationPostGraduation     EducationLevel = "post_graduation"
-	EducationNotMentioned       EducationLevel = DefaultNotMentioned
-)
-
-// HomeDistrict defines the home_district_enum type
-type HomeDistrict string
-
-const (
-	DistrictThiruvananthapuram HomeDistrict = "thiruvananthapuram"
-	DistrictKollam             HomeDistrict = "kollam"
-	DistrictPathanamthitta     HomeDistrict = "pathanamthitta"
-	DistrictAlappuzha          HomeDistrict = "alappuzha"
-	DistrictKottayam           HomeDistrict = "kottayam"
-	DistrictErnakulam          HomeDistrict = "ernakulam"
-	DistrictThrissur           HomeDistrict = "thrissur"
-	DistrictPalakkad           HomeDistrict = "palakkad"
-	DistrictMalappuram         HomeDistrict = "malappuram"
-	DistrictKozhikode          HomeDistrict = "kozhikode"
-	DistrictWayanad            HomeDistrict = "wayanad"
-	DistrictKannur             HomeDistrict = "kannur"
-	DistrictKasaragod          HomeDistrict = "kasaragod"
-	DistrictIdukki             HomeDistrict = "idukki"
-	DistrictNotMentioned       HomeDistrict = DefaultNotMentioned
-)
+// Type aliases to use constants from constants package
+type Community = constants.Community
+type MaritalStatus = constants.MaritalStatus
+type Profession = constants.Profession
+type ProfessionType = constants.ProfessionType
+type EducationLevel = constants.EducationLevel
+type HomeDistrict = constants.HomeDistrict
 
 // UserProfile represents the user_profiles table in PostgreSQL
 // Note: ID is BIGSERIAL (auto-increment), so we use uint
@@ -181,37 +106,37 @@ func (PartnerPreferencesWithArrays) TableName() string {
 	return "partner_preferences"
 }
 
-func (p *PartnerPreferencesWithArrays) BeforeCreate(*gorm.DB) error {
-	// Convert the typed arrays to string arrays for pq
-	p.PreferredCommunitiesArray = make(pq.StringArray, len(p.PreferredCommunities))
-	for i, v := range p.PreferredCommunities {
-		p.PreferredCommunitiesArray[i] = string(v)
-	}
+// func (p *PartnerPreferencesWithArrays) BeforeCreate(*gorm.DB) error {
+// 	// Convert the typed arrays to string arrays for pq
+// 	p.PreferredCommunitiesArray = make(pq.StringArray, len(p.PreferredCommunities))
+// 	for i, v := range p.PreferredCommunities {
+// 		p.PreferredCommunitiesArray[i] = string(v)
+// 	}
 
-	p.PreferredMaritalStatusArray = make(pq.StringArray, len(p.PreferredMaritalStatus))
-	for i, v := range p.PreferredMaritalStatus {
-		p.PreferredMaritalStatusArray[i] = string(v)
-	}
+// 	p.PreferredMaritalStatusArray = make(pq.StringArray, len(p.PreferredMaritalStatus))
+// 	for i, v := range p.PreferredMaritalStatus {
+// 		p.PreferredMaritalStatusArray[i] = string(v)
+// 	}
 
-	p.PreferredProfessionsArray = make(pq.StringArray, len(p.PreferredProfessions))
-	for i, v := range p.PreferredProfessions {
-		p.PreferredProfessionsArray[i] = string(v)
-	}
+// 	p.PreferredProfessionsArray = make(pq.StringArray, len(p.PreferredProfessions))
+// 	for i, v := range p.PreferredProfessions {
+// 		p.PreferredProfessionsArray[i] = string(v)
+// 	}
 
-	p.PreferredProfessionTypesArray = make(pq.StringArray, len(p.PreferredProfessionTypes))
-	for i, v := range p.PreferredProfessionTypes {
-		p.PreferredProfessionTypesArray[i] = string(v)
-	}
+// 	p.PreferredProfessionTypesArray = make(pq.StringArray, len(p.PreferredProfessionTypes))
+// 	for i, v := range p.PreferredProfessionTypes {
+// 		p.PreferredProfessionTypesArray[i] = string(v)
+// 	}
 
-	p.PreferredEducationLevelsArray = make(pq.StringArray, len(p.PreferredEducationLevels))
-	for i, v := range p.PreferredEducationLevels {
-		p.PreferredEducationLevelsArray[i] = string(v)
-	}
+// 	p.PreferredEducationLevelsArray = make(pq.StringArray, len(p.PreferredEducationLevels))
+// 	for i, v := range p.PreferredEducationLevels {
+// 		p.PreferredEducationLevelsArray[i] = string(v)
+// 	}
 
-	p.PreferredHomeDistrictsArray = make(pq.StringArray, len(p.PreferredHomeDistricts))
-	for i, v := range p.PreferredHomeDistricts {
-		p.PreferredHomeDistrictsArray[i] = string(v)
-	}
+// 	p.PreferredHomeDistrictsArray = make(pq.StringArray, len(p.PreferredHomeDistricts))
+// 	for i, v := range p.PreferredHomeDistricts {
+// 		p.PreferredHomeDistrictsArray[i] = string(v)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }

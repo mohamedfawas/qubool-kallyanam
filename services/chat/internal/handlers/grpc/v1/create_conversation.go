@@ -2,58 +2,35 @@ package v1
 
 import (
 	"context"
-	"errors"
 
-	"go.mongodb.org/mongo-driver/mongo"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	chatpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/chat/v1"
-	"github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/domain/services"
+	"github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/helpers"
 )
 
 func (h *ChatHandler) CreateConversation(ctx context.Context, req *chatpb.CreateConversationRequest) (*chatpb.CreateConversationResponse, error) {
 	h.logger.Info("CreateConversation gRPC request", "userID", req.UserId, "participantID", req.ParticipantId)
 
-	// Validate request
-	if req.UserId == "" || req.ParticipantId == "" {
+	// Validate request using helper
+	if err := helpers.ValidateCreateConversationInput(req.UserId, req.ParticipantId); err != nil {
+		h.logger.Debug("Invalid create conversation request", "error", err)
 		return &chatpb.CreateConversationResponse{
 			Success: false,
 			Message: "Invalid request parameters",
-			Error:   "User ID and Participant ID are required",
-		}, status.Error(codes.InvalidArgument, "User ID and Participant ID are required")
+			Error:   err.Error(),
+		}, helpers.MapErrorToGRPCStatus(err)
 	}
 
 	// Call service
 	conversation, err := h.chatService.CreateConversation(ctx, req.UserId, req.ParticipantId)
 	if err != nil {
 		h.logger.Error("Failed to create conversation", "error", err)
-
-		var errMsg string
-		var statusCode codes.Code
-
-		switch {
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = "Invalid input parameters"
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrDuplicateParticipant):
-			errMsg = "Cannot create conversation with yourself"
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, mongo.ErrNoDocuments):
-			errMsg = "User not found"
-			statusCode = codes.NotFound
-		default:
-			errMsg = "Failed to create conversation"
-			statusCode = codes.Internal
-		}
-
 		return &chatpb.CreateConversationResponse{
 			Success: false,
 			Message: "Failed to create conversation",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
+			Error:   err.Error(),
+		}, helpers.MapErrorToGRPCStatus(err)
 	}
 
 	// Build response

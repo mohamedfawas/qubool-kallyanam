@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -10,16 +9,11 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/utils/indianstandardtime"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/validation"
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/constants"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/repositories"
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/errors"
 	"gorm.io/gorm"
-)
-
-var (
-	ErrInvalidInput    = errors.New("invalid input parameters")
-	ErrProfileNotFound = errors.New("profile not found")
-	ErrProfileExists   = errors.New("profile already exists")
-	ErrValidation      = errors.New("validation error")
 )
 
 type DetailedProfileData struct {
@@ -44,17 +38,26 @@ type DetailedProfileData struct {
 }
 
 type ProfileService struct {
-	profileRepo repositories.ProfileRepository
-	logger      logging.Logger
+	profileRepo            repositories.ProfileRepository
+	partnerPreferencesRepo repositories.PartnerPreferencesRepository
+	photoRepo              repositories.PhotoRepository
+	videoRepo              repositories.VideoRepository
+	logger                 logging.Logger
 }
 
 func NewProfileService(
 	profileRepo repositories.ProfileRepository,
+	partnerPreferencesRepo repositories.PartnerPreferencesRepository,
+	photoRepo repositories.PhotoRepository,
+	videoRepo repositories.VideoRepository,
 	logger logging.Logger,
 ) *ProfileService {
 	return &ProfileService{
-		profileRepo: profileRepo,
-		logger:      logger,
+		profileRepo:            profileRepo,
+		partnerPreferencesRepo: partnerPreferencesRepo,
+		photoRepo:              photoRepo,
+		videoRepo:              videoRepo,
+		logger:                 logger,
 	}
 }
 
@@ -84,7 +87,6 @@ func (s *ProfileService) HandleUserLogin(ctx context.Context, userID string, pho
 	now := indianstandardtime.Now()
 
 	// Create minimal profile with only required fields
-	// Don't set any of the enum fields - GORM will treat them as NULL
 	profile := &models.UserProfile{
 		UserID:                userUUID,
 		Phone:                 phone,
@@ -93,12 +95,12 @@ func (s *ProfileService) HandleUserLogin(ctx context.Context, userID string, pho
 		LastLogin:             lastLogin,
 		CreatedAt:             now,
 		UpdatedAt:             now,
-		Community:             models.DefaultNotMentioned,
-		MaritalStatus:         models.DefaultNotMentioned,
-		Profession:            models.DefaultNotMentioned,
-		ProfessionType:        models.DefaultNotMentioned,
-		HighestEducationLevel: models.DefaultNotMentioned,
-		HomeDistrict:          models.DefaultNotMentioned,
+		Community:             constants.CommunityNotMentioned,
+		MaritalStatus:         constants.MaritalNotMentioned,
+		Profession:            constants.ProfessionNotMentioned,
+		ProfessionType:        constants.ProfessionTypeNotMentioned,
+		HighestEducationLevel: constants.EducationNotMentioned,
+		HomeDistrict:          constants.DistrictNotMentioned,
 	}
 
 	if err := s.profileRepo.CreateProfile(ctx, profile); err != nil {
@@ -132,7 +134,7 @@ func (s *ProfileService) HandleUserDeletion(ctx context.Context, userID string) 
 		return fmt.Errorf("failed to soft delete user profile: %w", err)
 	}
 
-	if err := s.profileRepo.SoftDeletePartnerPreferences(ctx, profile.ID); err != nil {
+	if err := s.partnerPreferencesRepo.SoftDeletePartnerPreferences(ctx, profile.ID); err != nil {
 		s.logger.Error("Failed to soft delete partner preferences", "userID", userID, "profileID", profile.ID, "error", err)
 		return fmt.Errorf("failed to soft delete partner preferences: %w", err)
 	}
@@ -149,7 +151,7 @@ func (s *ProfileService) UpdateProfile(ctx context.Context, userID string, isBri
 	// Validate the userID
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	// Get existing profile
@@ -158,20 +160,20 @@ func (s *ProfileService) UpdateProfile(ctx context.Context, userID string, isBri
 		return fmt.Errorf("error retrieving profile: %w", err)
 	}
 	if existingProfile == nil {
-		return ErrProfileNotFound
+		return errors.ErrProfileNotFound
 	}
 
 	// Validate all fields
 	if err := s.validateProfileFields(heightCM, community, maritalStatus, profession,
 		professionType, educationLevel, homeDistrict, dateOfBirth); err != nil {
-		return fmt.Errorf("%w: %v", ErrValidation, err)
+		return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 	}
 
 	var dobTime *time.Time
 	if dateOfBirth != "" {
 		parsedTime, err := time.Parse("2006-01-02", dateOfBirth)
 		if err != nil {
-			return fmt.Errorf("%w: invalid date format: %v", ErrInvalidInput, err)
+			return fmt.Errorf("%w: invalid date format: %v", errors.ErrInvalidInput, err)
 		}
 		dobTime = &parsedTime
 	}
@@ -203,13 +205,14 @@ func (s *ProfileService) UpdateProfile(ctx context.Context, userID string, isBri
 	return nil
 }
 
-// Add validation helper function
 func (s *ProfileService) validateProfileFields(heightCM *int, community string, maritalStatus string,
 	profession string, professionType string, educationLevel string,
 	homeDistrict string, dateOfBirth string) error {
 
-	if err := validation.ValidateHeight(heightCM); err != nil {
-		return err
+	if heightCM != nil {
+		if err := validation.ValidateHeight(heightCM); err != nil {
+			return err
+		}
 	}
 
 	if err := validation.ValidateCommunity(community); err != nil {
@@ -236,10 +239,6 @@ func (s *ProfileService) validateProfileFields(heightCM *int, community string, 
 		return err
 	}
 
-	if err := validation.ValidateDateOfBirth(dateOfBirth); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -251,7 +250,7 @@ func (s *ProfileService) PatchProfile(ctx context.Context, userID string,
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	exists, err := s.profileRepo.ProfileExists(ctx, userUUID)
@@ -259,59 +258,52 @@ func (s *ProfileService) PatchProfile(ctx context.Context, userID string,
 		return fmt.Errorf("error checking profile existence: %w", err)
 	}
 	if !exists {
-		return ErrProfileNotFound
+		return errors.ErrProfileNotFound
 	}
 
 	// Validate the fields that are being updated
 	if heightCM != nil {
 		if err := validation.ValidateHeight(heightCM); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
+			return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 		}
 	}
 
 	if community != nil {
 		if err := validation.ValidateCommunity(*community); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
+			return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 		}
 	}
 
 	if maritalStatus != nil {
 		if err := validation.ValidateMaritalStatus(*maritalStatus); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
+			return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 		}
 	}
 
 	if profession != nil {
 		if err := validation.ValidateProfession(*profession); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
+			return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 		}
 	}
 
 	if professionType != nil {
 		if err := validation.ValidateProfessionType(*professionType); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
+			return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 		}
 	}
 
 	if educationLevel != nil {
 		if err := validation.ValidateEducationLevel(*educationLevel); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
+			return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 		}
 	}
 
 	if homeDistrict != nil {
 		if err := validation.ValidateHomeDistrict(*homeDistrict); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
+			return fmt.Errorf("%w: %v", errors.ErrValidation, err)
 		}
 	}
 
-	if dateOfBirth != "" {
-		if err := validation.ValidateDateOfBirth(dateOfBirth); err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
-		}
-	}
-
-	// Build updates map
 	updates := make(map[string]interface{})
 
 	if isBride != nil {
@@ -322,20 +314,23 @@ func (s *ProfileService) PatchProfile(ctx context.Context, userID string,
 		updates["full_name"] = *fullName
 	}
 
-	if dateOfBirth != "" {
-		// Convert string date to time.Time for database storage
+	if dateOfBirth != "" && !clearDateOfBirth {
 		parsedTime, err := time.Parse("2006-01-02", dateOfBirth)
 		if err != nil {
-			return fmt.Errorf("%w: invalid date format: %v", ErrInvalidInput, err)
+			return fmt.Errorf("%w: invalid date format: %v", errors.ErrInvalidInput, err)
 		}
 		updates["date_of_birth"] = parsedTime
-	} else if clearDateOfBirth {
+	}
+
+	if clearDateOfBirth {
 		updates["date_of_birth"] = nil
 	}
 
-	if heightCM != nil {
+	if heightCM != nil && !clearHeightCM {
 		updates["height_cm"] = *heightCM
-	} else if clearHeightCM {
+	}
+
+	if clearHeightCM {
 		updates["height_cm"] = nil
 	}
 
@@ -367,8 +362,8 @@ func (s *ProfileService) PatchProfile(ctx context.Context, userID string,
 		updates["home_district"] = *homeDistrict
 	}
 
-	// If no updates, return success
 	if len(updates) == 0 {
+		s.logger.Debug("No fields to update", "userID", userID)
 		return nil
 	}
 
@@ -376,14 +371,14 @@ func (s *ProfileService) PatchProfile(ctx context.Context, userID string,
 		return fmt.Errorf("failed to patch profile: %w", err)
 	}
 
-	s.logger.Info("Profile patched successfully", "userID", userID, "updatedFields", len(updates))
+	s.logger.Info("Profile patched successfully", "userID", userID, "fieldsUpdated", len(updates))
 	return nil
 }
 
 func (s *ProfileService) GetProfile(ctx context.Context, userID string) (*models.UserProfile, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return nil, fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	profile, err := s.profileRepo.GetProfileByUserID(ctx, userUUID)
@@ -392,7 +387,7 @@ func (s *ProfileService) GetProfile(ctx context.Context, userID string) (*models
 	}
 
 	if profile == nil {
-		return nil, ErrProfileNotFound
+		return nil, errors.ErrProfileNotFound
 	}
 
 	return profile, nil
@@ -401,13 +396,13 @@ func (s *ProfileService) GetProfile(ctx context.Context, userID string) (*models
 // GetUserUUIDByProfileID resolves public profile ID to user UUID
 func (s *ProfileService) GetUserUUIDByProfileID(ctx context.Context, profileID uint64) (string, error) {
 	if profileID == 0 {
-		return "", fmt.Errorf("%w: profile ID cannot be zero", ErrInvalidInput)
+		return "", fmt.Errorf("%w: profile ID cannot be zero", errors.ErrInvalidInput)
 	}
 
 	userUUID, err := s.profileRepo.GetUserUUIDByProfileID(ctx, profileID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return "", ErrProfileNotFound
+			return "", errors.ErrProfileNotFound
 		}
 		return "", fmt.Errorf("failed to resolve profile ID: %w", err)
 	}
@@ -419,13 +414,13 @@ func (s *ProfileService) GetUserUUIDByProfileID(ctx context.Context, profileID u
 func (s *ProfileService) GetBasicProfileByUUID(ctx context.Context, userUUID string) (*models.UserProfile, error) {
 	parsedUUID, err := uuid.Parse(userUUID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid user UUID format: %v", ErrInvalidInput, err)
+		return nil, fmt.Errorf("%w: invalid user UUID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	profile, err := s.profileRepo.GetBasicProfileByUUID(ctx, parsedUUID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, ErrProfileNotFound
+			return nil, errors.ErrProfileNotFound
 		}
 		return nil, fmt.Errorf("failed to get basic profile: %w", err)
 	}
@@ -443,53 +438,19 @@ func (s *ProfileService) calculateAge(dateOfBirth time.Time) int {
 }
 
 func (s *ProfileService) GetDetailedProfileByID(ctx context.Context, profileID uint64) (*DetailedProfileData, error) {
-	// Validate input
 	if profileID == 0 {
-		return nil, fmt.Errorf("%w: profile ID cannot be zero", ErrInvalidInput)
+		return nil, fmt.Errorf("%w: profile ID cannot be zero", errors.ErrInvalidInput)
 	}
 
-	// Get the profile by ID
 	profile, err := s.profileRepo.GetProfileByID(ctx, uint(profileID))
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, ErrProfileNotFound
+			return nil, errors.ErrProfileNotFound
 		}
 		return nil, fmt.Errorf("failed to get profile: %w", err)
 	}
 
-	if profile == nil || profile.IsDeleted {
-		return nil, ErrProfileNotFound
-	}
-
-	// Get partner preferences
-	partnerPreferences, err := s.profileRepo.GetPartnerPreferences(ctx, profile.ID)
-	if err != nil {
-		s.logger.Warn("Failed to get partner preferences", "profileID", profileID, "error", err)
-		// Don't fail the request if partner preferences are not found
-	}
-
-	// Get additional photos
-	photos, err := s.profileRepo.GetUserPhotos(ctx, profile.UserID)
-	if err != nil {
-		s.logger.Warn("Failed to get user photos", "profileID", profileID, "error", err)
-		photos = []*models.UserPhoto{} // Use empty slice if error
-	}
-
-	// Get intro video
-	video, err := s.profileRepo.GetUserVideo(ctx, profile.UserID)
-	if err != nil {
-		s.logger.Warn("Failed to get user video", "profileID", profileID, "error", err)
-		// Don't fail the request if video is not found
-	}
-
-	// Calculate age
-	var age int
-	if profile.DateOfBirth != nil {
-		age = s.calculateAge(*profile.DateOfBirth)
-	}
-
-	// Build the detailed profile response
-	detailedProfile := &DetailedProfileData{
+	detailedData := &DetailedProfileData{
 		ID:                    profile.ID,
 		IsBride:               profile.IsBride,
 		FullName:              profile.FullName,
@@ -504,11 +465,84 @@ func (s *ProfileService) GetDetailedProfileByID(ctx context.Context, profileID u
 		HomeDistrict:          profile.HomeDistrict,
 		ProfilePictureURL:     profile.ProfilePictureURL,
 		LastLogin:             profile.LastLogin,
-		PartnerPreferences:    partnerPreferences,
-		AdditionalPhotos:      photos,
-		IntroVideo:            video,
-		Age:                   age,
 	}
 
-	return detailedProfile, nil
+	if profile.DateOfBirth != nil {
+		detailedData.Age = s.calculateAge(*profile.DateOfBirth)
+	}
+
+	// Get partner preferences
+	if preferences, err := s.partnerPreferencesRepo.GetPartnerPreferences(ctx, profile.ID); err == nil && preferences != nil {
+		detailedData.PartnerPreferences = preferences
+	}
+
+	// Get additional photos
+	if photos, err := s.photoRepo.GetUserPhotos(ctx, profile.UserID); err == nil {
+		detailedData.AdditionalPhotos = photos
+	}
+
+	// Get intro video
+	if video, err := s.videoRepo.GetUserVideo(ctx, profile.UserID); err == nil && video != nil {
+		detailedData.IntroVideo = video
+	}
+
+	return detailedData, nil
+}
+
+// GetDetailedProfileByUUID gets comprehensive profile information by user UUID (for admin)
+func (s *ProfileService) GetDetailedProfileByUUID(ctx context.Context, userUUID string) (*DetailedProfileData, error) {
+	parsedUUID, err := uuid.Parse(userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid user UUID format: %v", errors.ErrInvalidInput, err)
+	}
+
+	profile, err := s.profileRepo.GetProfileByUserID(ctx, parsedUUID)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, errors.ErrProfileNotFound
+		}
+		return nil, fmt.Errorf("failed to get profile: %w", err)
+	}
+
+	if profile == nil {
+		return nil, errors.ErrProfileNotFound
+	}
+
+	detailedData := &DetailedProfileData{
+		ID:                    profile.ID,
+		IsBride:               profile.IsBride,
+		FullName:              profile.FullName,
+		DateOfBirth:           profile.DateOfBirth,
+		HeightCM:              profile.HeightCM,
+		PhysicallyChallenged:  profile.PhysicallyChallenged,
+		Community:             profile.Community,
+		MaritalStatus:         profile.MaritalStatus,
+		Profession:            profile.Profession,
+		ProfessionType:        profile.ProfessionType,
+		HighestEducationLevel: profile.HighestEducationLevel,
+		HomeDistrict:          profile.HomeDistrict,
+		ProfilePictureURL:     profile.ProfilePictureURL,
+		LastLogin:             profile.LastLogin,
+	}
+
+	if profile.DateOfBirth != nil {
+		detailedData.Age = s.calculateAge(*profile.DateOfBirth)
+	}
+
+	// Get partner preferences
+	if preferences, err := s.partnerPreferencesRepo.GetPartnerPreferences(ctx, profile.ID); err == nil && preferences != nil {
+		detailedData.PartnerPreferences = preferences
+	}
+
+	// Get additional photos
+	if photos, err := s.photoRepo.GetUserPhotos(ctx, profile.UserID); err == nil {
+		detailedData.AdditionalPhotos = photos
+	}
+
+	// Get intro video
+	if video, err := s.videoRepo.GetUserVideo(ctx, profile.UserID); err == nil && video != nil {
+		detailedData.IntroVideo = video
+	}
+
+	return detailedData, nil
 }

@@ -1,13 +1,8 @@
-// user/internal/handlers/grpc/v1/profile_handler.go
 package v1
 
 import (
 	"context"
 	"errors"
-	"mime/multipart"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,31 +15,25 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/services"
+	userErrors "github.com/mohamedfawas/qubool-kallyanam/services/user/internal/errors"
 )
 
 type ProfileHandler struct {
 	userpb.UnimplementedUserServiceServer
-	profileService     *services.ProfileService
-	photoService       *services.PhotoService
-	matchmakingService *services.MatchmakingService
-
-	jwtManager *jwt.Manager
-	logger     logging.Logger
+	profileService *services.ProfileService
+	jwtManager     *jwt.Manager
+	logger         logging.Logger
 }
 
 func NewProfileHandler(
 	profileService *services.ProfileService,
-	photoService *services.PhotoService,
-	matchmakingService *services.MatchmakingService,
 	jwtManager *jwt.Manager,
 	logger logging.Logger,
 ) *ProfileHandler {
 	return &ProfileHandler{
-		profileService:     profileService,
-		photoService:       photoService,
-		matchmakingService: matchmakingService,
-		jwtManager:         jwtManager,
-		logger:             logger,
+		profileService: profileService,
+		jwtManager:     jwtManager,
+		logger:         logger,
 	}
 }
 
@@ -63,7 +52,6 @@ func (h *ProfileHandler) extractUserID(ctx context.Context) (string, error) {
 	}
 
 	// As a fallback, check authorization header and extract from token
-	// This keeps backward compatibility during transition
 	authHeader := md.Get("authorization")
 	if len(authHeader) == 0 {
 		return "", status.Error(codes.Unauthenticated, "Authentication required")
@@ -83,8 +71,8 @@ func (h *ProfileHandler) extractUserID(ctx context.Context) (string, error) {
 	return userID, nil
 }
 
+// UpdateProfile updates the user's complete profile information
 func (h *ProfileHandler) UpdateProfile(ctx context.Context, req *userpb.UpdateProfileRequest) (*userpb.UpdateProfileResponse, error) {
-	// Extract user ID from authentication
 	userID, err := h.extractUserID(ctx)
 	if err != nil {
 		h.logger.Error("Authentication failed", "error", err)
@@ -95,18 +83,20 @@ func (h *ProfileHandler) UpdateProfile(ctx context.Context, req *userpb.UpdatePr
 		}, err
 	}
 
+	// Convert height from proto to pointer
 	var heightCM *int
 	if req.GetHeightCm() > 0 {
 		height := int(req.GetHeightCm())
 		heightCM = &height
 	}
 
+	// Call service layer
 	err = h.profileService.UpdateProfile(
 		ctx,
 		userID,
 		req.GetIsBride(),
 		req.GetFullName(),
-		req.GetDateOfBirth(), // Now passing string directly
+		req.GetDateOfBirth(),
 		heightCM,
 		req.GetPhysicallyChallenged(),
 		req.GetCommunity(),
@@ -122,13 +112,13 @@ func (h *ProfileHandler) UpdateProfile(ctx context.Context, req *userpb.UpdatePr
 		var errMsg string
 		var statusCode codes.Code
 		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
+		case errors.Is(err, userErrors.ErrProfileNotFound):
 			errMsg = "Profile not found"
 			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
+		case errors.Is(err, userErrors.ErrInvalidInput):
 			errMsg = err.Error()
 			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrValidation):
+		case errors.Is(err, userErrors.ErrValidation):
 			errMsg = err.Error()
 			statusCode = codes.InvalidArgument
 		default:
@@ -148,208 +138,7 @@ func (h *ProfileHandler) UpdateProfile(ctx context.Context, req *userpb.UpdatePr
 	}, nil
 }
 
-// UploadProfilePhoto handles the profile photo upload
-func (h *ProfileHandler) UploadProfilePhoto(ctx context.Context, req *userpb.UploadProfilePhotoRequest) (*userpb.UploadProfilePhotoResponse, error) {
-	// Extract user ID from authentication
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.UploadProfilePhotoResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Validate input
-	if len(req.GetPhotoData()) == 0 {
-		h.logger.Error("Empty photo data", "userID", userID)
-		return &userpb.UploadProfilePhotoResponse{
-			Success: false,
-			Message: "Photo data is required",
-			Error:   "empty photo data",
-		}, status.Error(codes.InvalidArgument, "Photo data is required")
-	}
-
-	if req.GetFileName() == "" {
-		h.logger.Error("Missing filename", "userID", userID)
-		return &userpb.UploadProfilePhotoResponse{
-			Success: false,
-			Message: "Filename is required",
-			Error:   "missing filename",
-		}, status.Error(codes.InvalidArgument, "Filename is required")
-	}
-
-	// Validate file extension
-	ext := strings.ToLower(filepath.Ext(req.GetFileName()))
-	validExt := false
-	for _, allowedExt := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp"} {
-		if ext == allowedExt {
-			validExt = true
-			break
-		}
-	}
-
-	if !validExt {
-		h.logger.Error("Invalid file type", "extension", ext, "userID", userID)
-		return &userpb.UploadProfilePhotoResponse{
-			Success: false,
-			Message: "Unsupported file type. Allowed types: jpg, jpeg, png, gif, webp",
-			Error:   "invalid file type",
-		}, status.Error(codes.InvalidArgument, "Unsupported file type")
-	}
-
-	// Convert binary data to multipart file
-	fileData := req.GetPhotoData()
-
-	// Check file size (5MB max)
-	const maxFileSize = 5 * 1024 * 1024
-	if len(fileData) > maxFileSize {
-		h.logger.Error("File too large", "size", len(fileData), "userID", userID)
-		return &userpb.UploadProfilePhotoResponse{
-			Success: false,
-			Message: "File size exceeds the maximum allowed size of 5MB",
-			Error:   "file too large",
-		}, status.Error(codes.InvalidArgument, "File too large")
-	}
-
-	// For MVP: Create a temporary file
-	tempFile, err := createTempFile(fileData, req.GetFileName())
-	if err != nil {
-		h.logger.Error("Failed to create temporary file", "error", err, "userID", userID)
-		return &userpb.UploadProfilePhotoResponse{
-			Success: false,
-			Message: "Failed to process uploaded file",
-			Error:   "temporary file creation failed",
-		}, status.Error(codes.Internal, "Failed to process upload")
-	}
-	defer os.Remove(tempFile.Name()) // Clean up when done
-	defer tempFile.Close()
-
-	// Content type
-	contentType := req.GetContentType()
-	if contentType == "" {
-		// Try to detect content type
-		contentType = http.DetectContentType(fileData)
-	}
-
-	// Create a multipart file header
-	header := &multipart.FileHeader{
-		Filename: req.GetFileName(),
-		Size:     int64(len(fileData)),
-	}
-
-	// Upload the photo
-	photoURL, err := h.photoService.UploadProfilePhoto(ctx, userID, header, tempFile)
-	if err != nil {
-		h.logger.Error("Failed to upload profile photo", "error", err, "userID", userID)
-		var errMsg string
-		var statusCode codes.Code
-		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
-			errMsg = "Profile not found"
-			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrPhotoUploadFailed):
-			errMsg = "Failed to upload photo"
-			statusCode = codes.Internal
-		default:
-			errMsg = "Internal server error"
-			statusCode = codes.Internal
-		}
-		return &userpb.UploadProfilePhotoResponse{
-			Success: false,
-			Message: "Failed to upload profile photo",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.UploadProfilePhotoResponse{
-		Success:  true,
-		Message:  "Profile photo uploaded successfully",
-		PhotoUrl: photoURL,
-	}, nil
-}
-
-// createTempFile creates a temporary file from the given data
-func createTempFile(data []byte, filename string) (*os.File, error) {
-	// Create a temporary file with a unique name
-	ext := filepath.Ext(filename)
-	prefix := "upload_"
-	if len(filename) > 8 {
-		prefix = filename[:8]
-	}
-
-	tempFile, err := os.CreateTemp("", prefix+"*"+ext)
-	if err != nil {
-		return nil, err
-	}
-
-	// Write data to the file
-	if _, err := tempFile.Write(data); err != nil {
-		tempFile.Close()
-		os.Remove(tempFile.Name())
-		return nil, err
-	}
-
-	// Reset file pointer to beginning
-	if _, err := tempFile.Seek(0, 0); err != nil {
-		tempFile.Close()
-		os.Remove(tempFile.Name())
-		return nil, err
-	}
-
-	return tempFile, nil
-}
-
-func (h *ProfileHandler) DeleteProfilePhoto(ctx context.Context, req *userpb.DeleteProfilePhotoRequest) (*userpb.DeleteProfilePhotoResponse, error) {
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.DeleteProfilePhotoResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	err = h.photoService.DeleteProfilePhoto(ctx, userID)
-	if err != nil {
-		h.logger.Error("Failed to delete profile photo", "error", err, "userID", userID)
-
-		var errMsg string
-		var statusCode codes.Code
-
-		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
-			errMsg = "Profile not found"
-			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrPhotoDeleteFailed):
-			errMsg = "Failed to delete photo"
-			statusCode = codes.Internal
-		default:
-			errMsg = "Internal server error"
-			statusCode = codes.Internal
-		}
-
-		return &userpb.DeleteProfilePhotoResponse{
-			Success: false,
-			Message: "Failed to delete profile photo",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.DeleteProfilePhotoResponse{
-		Success: true,
-		Message: "Profile photo deleted successfully",
-	}, nil
-}
-
+// PatchProfile partially updates the user's profile information
 func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProfileRequest) (*userpb.UpdateProfileResponse, error) {
 	userID, err := h.extractUserID(ctx)
 	if err != nil {
@@ -383,11 +172,11 @@ func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProf
 		fullName = &value
 	}
 
+	// Handle date of birth validation
 	if req.DateOfBirth != "" && !req.ClearDateOfBirth {
-		// Parse the date string to time.Time
 		dob, err := time.Parse("2006-01-02", req.DateOfBirth)
 		if err != nil {
-			// Handle parse error
+			h.logger.Error("Invalid date format", "error", err, "userID", userID, "dateOfBirth", req.DateOfBirth)
 			return &userpb.UpdateProfileResponse{
 				Success: false,
 				Message: "Invalid date format",
@@ -437,12 +226,13 @@ func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProf
 		homeDistrict = &value
 	}
 
+	// Call service layer
 	err = h.profileService.PatchProfile(
 		ctx,
 		userID,
 		isBride,
 		fullName,
-		req.DateOfBirth, // Pass string directly to service
+		req.DateOfBirth,
 		heightCM,
 		physicallyChallenged,
 		community,
@@ -461,13 +251,13 @@ func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProf
 		var statusCode codes.Code
 
 		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
+		case errors.Is(err, userErrors.ErrProfileNotFound):
 			errMsg = "Profile not found"
 			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
+		case errors.Is(err, userErrors.ErrInvalidInput):
 			errMsg = err.Error()
 			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrValidation):
+		case errors.Is(err, userErrors.ErrValidation):
 			errMsg = err.Error()
 			statusCode = codes.InvalidArgument
 		default:
@@ -488,6 +278,7 @@ func (h *ProfileHandler) PatchProfile(ctx context.Context, req *userpb.PatchProf
 	}, nil
 }
 
+// GetProfile retrieves the authenticated user's profile
 func (h *ProfileHandler) GetProfile(ctx context.Context, req *userpb.GetProfileRequest) (*userpb.GetProfileResponse, error) {
 	userID, err := h.extractUserID(ctx)
 	if err != nil {
@@ -506,10 +297,10 @@ func (h *ProfileHandler) GetProfile(ctx context.Context, req *userpb.GetProfileR
 		var statusCode codes.Code
 
 		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
+		case errors.Is(err, userErrors.ErrProfileNotFound):
 			errMsg = "Profile not found"
 			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
+		case errors.Is(err, userErrors.ErrInvalidInput):
 			errMsg = err.Error()
 			statusCode = codes.InvalidArgument
 		default:
@@ -561,300 +352,13 @@ func (h *ProfileHandler) GetProfile(ctx context.Context, req *userpb.GetProfileR
 	}, nil
 }
 
-// UpdatePartnerPreferences implements the UpdatePartnerPreferences RPC
-func (h *ProfileHandler) UpdatePartnerPreferences(ctx context.Context, req *userpb.UpdatePartnerPreferencesRequest) (*userpb.UpdatePartnerPreferencesResponse, error) {
-	// Extract user ID from context
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.UpdatePartnerPreferencesResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Convert request fields
-	var minAgeYears, maxAgeYears, minHeightCM, maxHeightCM *int
-
-	if req.MinAgeYears > 0 {
-		age := int(req.MinAgeYears)
-		minAgeYears = &age
-	}
-	if req.MaxAgeYears > 0 {
-		age := int(req.MaxAgeYears)
-		maxAgeYears = &age
-	}
-	if req.MinHeightCm > 0 {
-		height := int(req.MinHeightCm)
-		minHeightCM = &height
-	}
-	if req.MaxHeightCm > 0 {
-		height := int(req.MaxHeightCm)
-		maxHeightCM = &height
-	}
-
-	// Call service method
-	err = h.profileService.UpdatePartnerPreferences(
-		ctx,
-		userID,
-		minAgeYears,
-		maxAgeYears,
-		minHeightCM,
-		maxHeightCM,
-		req.AcceptPhysicallyChallenged,
-		req.PreferredCommunities,
-		req.PreferredMaritalStatus,
-		req.PreferredProfessions,
-		req.PreferredProfessionTypes,
-		req.PreferredEducationLevels,
-		req.PreferredHomeDistricts,
-	)
-
-	if err != nil {
-		h.logger.Error("Failed to update partner preferences", "error", err, "userID", userID)
-
-		var errMsg string
-		var statusCode codes.Code
-
-		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
-			errMsg = "Profile not found"
-			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrValidation):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		default:
-			errMsg = "Internal server error"
-			statusCode = codes.Internal
-		}
-
-		return &userpb.UpdatePartnerPreferencesResponse{
-			Success: false,
-			Message: "Failed to update partner preferences",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.UpdatePartnerPreferencesResponse{
-		Success: true,
-		Message: "Partner preferences updated successfully",
-	}, nil
-}
-
-func (h *ProfileHandler) PatchPartnerPreferences(ctx context.Context, req *userpb.PatchPartnerPreferencesRequest) (*userpb.UpdatePartnerPreferencesResponse, error) {
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.UpdatePartnerPreferencesResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	var minAgeYears, maxAgeYears, minHeightCM, maxHeightCM *int
-	var acceptPhysicallyChallenged *bool
-
-	if req.MinAgeYears != nil {
-		age := int(req.MinAgeYears.Value)
-		minAgeYears = &age
-	}
-	if req.MaxAgeYears != nil {
-		age := int(req.MaxAgeYears.Value)
-		maxAgeYears = &age
-	}
-	if req.MinHeightCm != nil {
-		height := int(req.MinHeightCm.Value)
-		minHeightCM = &height
-	}
-	if req.MaxHeightCm != nil {
-		height := int(req.MaxHeightCm.Value)
-		maxHeightCM = &height
-	}
-	if req.AcceptPhysicallyChallenged != nil {
-		value := req.AcceptPhysicallyChallenged.Value
-		acceptPhysicallyChallenged = &value
-	}
-
-	err = h.profileService.PatchPartnerPreferences(
-		ctx,
-		userID,
-		minAgeYears,
-		maxAgeYears,
-		minHeightCM,
-		maxHeightCM,
-		acceptPhysicallyChallenged,
-		req.PreferredCommunities,
-		req.PreferredMaritalStatus,
-		req.PreferredProfessions,
-		req.PreferredProfessionTypes,
-		req.PreferredEducationLevels,
-		req.PreferredHomeDistricts,
-		req.ClearPreferredCommunities,
-		req.ClearPreferredMaritalStatus,
-		req.ClearPreferredProfessions,
-		req.ClearPreferredProfessionTypes,
-		req.ClearPreferredEducationLevels,
-		req.ClearPreferredHomeDistricts,
-	)
-
-	if err != nil {
-		h.logger.Error("Failed to patch partner preferences", "error", err, "userID", userID)
-		var errMsg string
-		var statusCode codes.Code
-		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
-			errMsg = "Profile not found"
-			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrValidation):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		default:
-			errMsg = "Internal server error"
-			statusCode = codes.Internal
-		}
-		return &userpb.UpdatePartnerPreferencesResponse{
-			Success: false,
-			Message: "Failed to patch partner preferences",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.UpdatePartnerPreferencesResponse{
-		Success: true,
-		Message: "Partner preferences patched successfully",
-	}, nil
-}
-
-func (h *ProfileHandler) GetPartnerPreferences(ctx context.Context, req *userpb.GetPartnerPreferencesRequest) (*userpb.GetPartnerPreferencesResponse, error) {
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.GetPartnerPreferencesResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	prefs, err := h.profileService.GetPartnerPreferences(ctx, userID)
-	if err != nil {
-		h.logger.Error("Failed to get partner preferences", "error", err, "userID", userID)
-		var errMsg string
-		var statusCode codes.Code
-		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
-			errMsg = "Profile not found"
-			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		default:
-			errMsg = "Internal server error"
-			statusCode = codes.Internal
-		}
-		return &userpb.GetPartnerPreferencesResponse{
-			Success: false,
-			Message: "Failed to get partner preferences",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	// Convert to response data
-	var minAge, maxAge, minHeight, maxHeight int32
-	if prefs == nil {
-		// Return empty preferences if not set
-		return &userpb.GetPartnerPreferencesResponse{
-			Success: true,
-			Message: "Partner preferences retrieved successfully",
-			Preferences: &userpb.PartnerPreferencesData{
-				AcceptPhysicallyChallenged: true, // Default value
-				PreferredCommunities:       []string{},
-				PreferredMaritalStatus:     []string{},
-				PreferredProfessions:       []string{},
-				PreferredProfessionTypes:   []string{},
-				PreferredEducationLevels:   []string{},
-				PreferredHomeDistricts:     []string{},
-			},
-		}, nil
-	}
-
-	if prefs.MinAgeYears != nil {
-		minAge = int32(*prefs.MinAgeYears)
-	}
-	if prefs.MaxAgeYears != nil {
-		maxAge = int32(*prefs.MaxAgeYears)
-	}
-	if prefs.MinHeightCM != nil {
-		minHeight = int32(*prefs.MinHeightCM)
-	}
-	if prefs.MaxHeightCM != nil {
-		maxHeight = int32(*prefs.MaxHeightCM)
-	}
-
-	// Convert enum types to strings
-	communities := make([]string, len(prefs.PreferredCommunities))
-	for i, c := range prefs.PreferredCommunities {
-		communities[i] = string(c)
-	}
-
-	maritalStatus := make([]string, len(prefs.PreferredMaritalStatus))
-	for i, s := range prefs.PreferredMaritalStatus {
-		maritalStatus[i] = string(s)
-	}
-
-	professions := make([]string, len(prefs.PreferredProfessions))
-	for i, p := range prefs.PreferredProfessions {
-		professions[i] = string(p)
-	}
-
-	professionTypes := make([]string, len(prefs.PreferredProfessionTypes))
-	for i, pt := range prefs.PreferredProfessionTypes {
-		professionTypes[i] = string(pt)
-	}
-
-	educationLevels := make([]string, len(prefs.PreferredEducationLevels))
-	for i, el := range prefs.PreferredEducationLevels {
-		educationLevels[i] = string(el)
-	}
-
-	homeDistricts := make([]string, len(prefs.PreferredHomeDistricts))
-	for i, hd := range prefs.PreferredHomeDistricts {
-		homeDistricts[i] = string(hd)
-	}
-
-	return &userpb.GetPartnerPreferencesResponse{
-		Success: true,
-		Message: "Partner preferences retrieved successfully",
-		Preferences: &userpb.PartnerPreferencesData{
-			MinAgeYears:                minAge,
-			MaxAgeYears:                maxAge,
-			MinHeightCm:                minHeight,
-			MaxHeightCm:                maxHeight,
-			AcceptPhysicallyChallenged: prefs.AcceptPhysicallyChallenged,
-			PreferredCommunities:       communities,
-			PreferredMaritalStatus:     maritalStatus,
-			PreferredProfessions:       professions,
-			PreferredProfessionTypes:   professionTypes,
-			PreferredEducationLevels:   educationLevels,
-			PreferredHomeDistricts:     homeDistricts,
-		},
-	}, nil
-}
-
 // GetProfileByID resolves public profile ID to user UUID
 func (h *ProfileHandler) GetProfileByID(ctx context.Context, req *userpb.GetProfileByIDRequest) (*userpb.GetProfileByIDResponse, error) {
 	h.logger.Info("GetProfileByID gRPC request", "profileID", req.ProfileId)
 
 	// Validate request
 	if req.ProfileId == 0 {
+		h.logger.Error("Invalid profile ID", "profileID", req.ProfileId)
 		return &userpb.GetProfileByIDResponse{
 			Success: false,
 			Message: "Invalid profile ID",
@@ -871,10 +375,10 @@ func (h *ProfileHandler) GetProfileByID(ctx context.Context, req *userpb.GetProf
 		var statusCode codes.Code
 
 		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
+		case errors.Is(err, userErrors.ErrProfileNotFound):
 			errMsg = "Profile not found"
 			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
+		case errors.Is(err, userErrors.ErrInvalidInput):
 			errMsg = "Invalid profile ID"
 			statusCode = codes.InvalidArgument
 		default:
@@ -902,6 +406,7 @@ func (h *ProfileHandler) GetBasicProfile(ctx context.Context, req *userpb.GetBas
 
 	// Validate request
 	if req.UserUuid == "" {
+		h.logger.Error("Invalid user UUID", "userUUID", req.UserUuid)
 		return &userpb.GetBasicProfileResponse{
 			Success: false,
 			Message: "Invalid user UUID",
@@ -918,10 +423,10 @@ func (h *ProfileHandler) GetBasicProfile(ctx context.Context, req *userpb.GetBas
 		var statusCode codes.Code
 
 		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
+		case errors.Is(err, userErrors.ErrProfileNotFound):
 			errMsg = "Profile not found"
 			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
+		case errors.Is(err, userErrors.ErrInvalidInput):
 			errMsg = "Invalid user UUID"
 			statusCode = codes.InvalidArgument
 		default:
@@ -954,413 +459,13 @@ func (h *ProfileHandler) GetBasicProfile(ctx context.Context, req *userpb.GetBas
 	}, nil
 }
 
-// UploadUserPhoto handles uploading additional photos
-func (h *ProfileHandler) UploadUserPhoto(ctx context.Context, req *userpb.UploadUserPhotoRequest) (*userpb.UploadUserPhotoResponse, error) {
-	// Extract user ID from authentication
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.UploadUserPhotoResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Validate input
-	if len(req.GetPhotoData()) == 0 {
-		return &userpb.UploadUserPhotoResponse{
-			Success: false,
-			Message: "Photo data is required",
-			Error:   "empty photo data",
-		}, status.Error(codes.InvalidArgument, "Photo data is required")
-	}
-
-	if req.GetFileName() == "" {
-		return &userpb.UploadUserPhotoResponse{
-			Success: false,
-			Message: "Filename is required",
-			Error:   "missing filename",
-		}, status.Error(codes.InvalidArgument, "Filename is required")
-	}
-
-	if req.GetDisplayOrder() < 1 || req.GetDisplayOrder() > 3 {
-		return &userpb.UploadUserPhotoResponse{
-			Success: false,
-			Message: "Display order must be between 1 and 3",
-			Error:   "invalid display order",
-		}, status.Error(codes.InvalidArgument, "Display order must be between 1 and 3")
-	}
-
-	// Validate file extension
-	ext := strings.ToLower(filepath.Ext(req.GetFileName()))
-	validExt := false
-	for _, allowedExt := range []string{".jpg", ".jpeg", ".png"} {
-		if ext == allowedExt {
-			validExt = true
-			break
-		}
-	}
-
-	if !validExt {
-		return &userpb.UploadUserPhotoResponse{
-			Success: false,
-			Message: "Unsupported file type. Allowed types: jpg, jpeg, png",
-			Error:   "invalid file type",
-		}, status.Error(codes.InvalidArgument, "Unsupported file type")
-	}
-
-	// Create temporary file for the photo service
-	tempFile, err := createTempFile(req.GetPhotoData(), req.GetFileName())
-	if err != nil {
-		h.logger.Error("Failed to create temp file", "error", err, "userID", userID)
-		return &userpb.UploadUserPhotoResponse{
-			Success: false,
-			Message: "Failed to process photo",
-			Error:   "temp file creation failed",
-		}, status.Error(codes.Internal, "Failed to process photo")
-	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
-	// Create file header
-	fileHeader := &multipart.FileHeader{
-		Filename: req.GetFileName(),
-		Size:     int64(len(req.GetPhotoData())),
-		Header:   make(map[string][]string),
-	}
-	if req.GetContentType() != "" {
-		fileHeader.Header.Set("Content-Type", req.GetContentType())
-	}
-
-	// Reset file pointer
-	tempFile.Seek(0, 0)
-
-	// Upload photo
-	photoURL, err := h.photoService.UploadUserPhoto(ctx, userID, fileHeader, tempFile, int(req.GetDisplayOrder()))
-	if err != nil {
-		h.logger.Error("Failed to upload user photo", "error", err, "userID", userID)
-		var errMsg string
-		var statusCode codes.Code
-		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
-			errMsg = "Profile not found"
-			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrPhotoUploadFailed):
-			errMsg = "Failed to upload photo"
-			statusCode = codes.Internal
-		default:
-			errMsg = "Internal server error"
-			statusCode = codes.Internal
-		}
-		return &userpb.UploadUserPhotoResponse{
-			Success: false,
-			Message: "Failed to upload photo",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.UploadUserPhotoResponse{
-		Success:  true,
-		Message:  "Photo uploaded successfully",
-		PhotoUrl: photoURL,
-	}, nil
-}
-
-// GetUserPhotos retrieves all photos for a user
-func (h *ProfileHandler) GetUserPhotos(ctx context.Context, req *userpb.GetUserPhotosRequest) (*userpb.GetUserPhotosResponse, error) {
-	// Extract user ID from authentication
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.GetUserPhotosResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Get photos
-	photos, err := h.photoService.GetUserPhotos(ctx, userID)
-	if err != nil {
-		h.logger.Error("Failed to get user photos", "error", err, "userID", userID)
-		return &userpb.GetUserPhotosResponse{
-			Success: false,
-			Message: "Failed to retrieve photos",
-			Error:   "internal server error",
-		}, status.Error(codes.Internal, "Failed to retrieve photos")
-	}
-
-	// Convert to proto format
-	protoPhotos := make([]*userpb.UserPhotoData, len(photos))
-	for i, photo := range photos {
-		protoPhotos[i] = &userpb.UserPhotoData{
-			PhotoUrl:     photo.PhotoURL,
-			DisplayOrder: int32(photo.DisplayOrder),
-			CreatedAt:    timestamppb.New(photo.CreatedAt),
-		}
-	}
-
-	return &userpb.GetUserPhotosResponse{
-		Success: true,
-		Message: "Photos retrieved successfully",
-		Photos:  protoPhotos,
-	}, nil
-}
-
-// DeleteUserPhoto deletes a specific user photo
-func (h *ProfileHandler) DeleteUserPhoto(ctx context.Context, req *userpb.DeleteUserPhotoRequest) (*userpb.DeleteUserPhotoResponse, error) {
-	// Extract user ID from authentication
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.DeleteUserPhotoResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Validate display order
-	if req.GetDisplayOrder() < 1 || req.GetDisplayOrder() > 3 {
-		return &userpb.DeleteUserPhotoResponse{
-			Success: false,
-			Message: "Display order must be between 1 and 3",
-			Error:   "invalid display order",
-		}, status.Error(codes.InvalidArgument, "Display order must be between 1 and 3")
-	}
-
-	// Delete photo
-	err = h.photoService.DeleteUserPhoto(ctx, userID, int(req.GetDisplayOrder()))
-	if err != nil {
-		h.logger.Error("Failed to delete user photo", "error", err, "userID", userID)
-		var errMsg string
-		var statusCode codes.Code
-		if err.Error() == "photo not found at display order "+string(rune(req.GetDisplayOrder()+'0')) {
-			errMsg = "Photo not found"
-			statusCode = codes.NotFound
-		} else {
-			errMsg = "Failed to delete photo"
-			statusCode = codes.Internal
-		}
-		return &userpb.DeleteUserPhotoResponse{
-			Success: false,
-			Message: errMsg,
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.DeleteUserPhotoResponse{
-		Success: true,
-		Message: "Photo deleted successfully",
-	}, nil
-}
-
-// UploadUserVideo handles uploading introduction video
-func (h *ProfileHandler) UploadUserVideo(ctx context.Context, req *userpb.UploadUserVideoRequest) (*userpb.UploadUserVideoResponse, error) {
-	// Extract user ID from authentication
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.UploadUserVideoResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Validate input
-	if len(req.GetVideoData()) == 0 {
-		return &userpb.UploadUserVideoResponse{
-			Success: false,
-			Message: "Video data is required",
-			Error:   "empty video data",
-		}, status.Error(codes.InvalidArgument, "Video data is required")
-	}
-
-	if req.GetFileName() == "" {
-		return &userpb.UploadUserVideoResponse{
-			Success: false,
-			Message: "Filename is required",
-			Error:   "missing filename",
-		}, status.Error(codes.InvalidArgument, "Filename is required")
-	}
-
-	// Validate file extension
-	ext := strings.ToLower(filepath.Ext(req.GetFileName()))
-	validExt := false
-	for _, allowedExt := range []string{".mp4", ".mov", ".avi", ".mkv"} {
-		if ext == allowedExt {
-			validExt = true
-			break
-		}
-	}
-
-	if !validExt {
-		return &userpb.UploadUserVideoResponse{
-			Success: false,
-			Message: "Unsupported file type. Allowed types: mp4, mov, avi, mkv",
-			Error:   "invalid file type",
-		}, status.Error(codes.InvalidArgument, "Unsupported file type")
-	}
-
-	// Create temporary file
-	tempFile, err := createTempFile(req.GetVideoData(), req.GetFileName())
-	if err != nil {
-		h.logger.Error("Failed to create temp file", "error", err, "userID", userID)
-		return &userpb.UploadUserVideoResponse{
-			Success: false,
-			Message: "Failed to process video",
-			Error:   "temp file creation failed",
-		}, status.Error(codes.Internal, "Failed to process video")
-	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
-	// Create file header
-	fileHeader := &multipart.FileHeader{
-		Filename: req.GetFileName(),
-		Size:     int64(len(req.GetVideoData())),
-		Header:   make(map[string][]string),
-	}
-	if req.GetContentType() != "" {
-		fileHeader.Header.Set("Content-Type", req.GetContentType())
-	}
-
-	// Reset file pointer
-	tempFile.Seek(0, 0)
-
-	// Upload video
-	videoURL, err := h.photoService.UploadUserVideo(ctx, userID, fileHeader, tempFile)
-	if err != nil {
-		h.logger.Error("Failed to upload user video", "error", err, "userID", userID)
-		var errMsg string
-		var statusCode codes.Code
-		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
-			errMsg = "Profile not found"
-			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
-			errMsg = err.Error()
-			statusCode = codes.InvalidArgument
-		case errors.Is(err, services.ErrPhotoUploadFailed):
-			errMsg = "Failed to upload video"
-			statusCode = codes.Internal
-		default:
-			errMsg = "Internal server error"
-			statusCode = codes.Internal
-		}
-		return &userpb.UploadUserVideoResponse{
-			Success: false,
-			Message: "Failed to upload video",
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.UploadUserVideoResponse{
-		Success:  true,
-		Message:  "Video uploaded successfully",
-		VideoUrl: videoURL,
-	}, nil
-}
-
-// GetUserVideo retrieves the video for a user
-func (h *ProfileHandler) GetUserVideo(ctx context.Context, req *userpb.GetUserVideoRequest) (*userpb.GetUserVideoResponse, error) {
-	// Extract user ID from authentication
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.GetUserVideoResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Get video
-	video, err := h.photoService.GetUserVideo(ctx, userID)
-	if err != nil {
-		h.logger.Error("Failed to get user video", "error", err, "userID", userID)
-		return &userpb.GetUserVideoResponse{
-			Success: false,
-			Message: "Failed to retrieve video",
-			Error:   "internal server error",
-		}, status.Error(codes.Internal, "Failed to retrieve video")
-	}
-
-	if video == nil {
-		return &userpb.GetUserVideoResponse{
-			Success: true,
-			Message: "No video found",
-		}, nil
-	}
-
-	// Convert to proto format
-	protoVideo := &userpb.UserVideoData{
-		VideoUrl:  video.VideoURL,
-		FileName:  video.FileName,
-		FileSize:  video.FileSize,
-		CreatedAt: timestamppb.New(video.CreatedAt),
-	}
-
-	if video.DurationSeconds != nil {
-		protoVideo.DurationSeconds = int32(*video.DurationSeconds)
-	}
-
-	return &userpb.GetUserVideoResponse{
-		Success: true,
-		Message: "Video retrieved successfully",
-		Video:   protoVideo,
-	}, nil
-}
-
-// DeleteUserVideo deletes the user's introduction video
-func (h *ProfileHandler) DeleteUserVideo(ctx context.Context, req *userpb.DeleteUserVideoRequest) (*userpb.DeleteUserVideoResponse, error) {
-	// Extract user ID from authentication
-	userID, err := h.extractUserID(ctx)
-	if err != nil {
-		h.logger.Error("Authentication failed", "error", err)
-		return &userpb.DeleteUserVideoResponse{
-			Success: false,
-			Message: "Authentication required",
-			Error:   err.Error(),
-		}, err
-	}
-
-	// Delete video
-	err = h.photoService.DeleteUserVideo(ctx, userID)
-	if err != nil {
-		h.logger.Error("Failed to delete user video", "error", err, "userID", userID)
-		var errMsg string
-		var statusCode codes.Code
-		if strings.Contains(err.Error(), "video not found") {
-			errMsg = "Video not found"
-			statusCode = codes.NotFound
-		} else {
-			errMsg = "Failed to delete video"
-			statusCode = codes.Internal
-		}
-		return &userpb.DeleteUserVideoResponse{
-			Success: false,
-			Message: errMsg,
-			Error:   errMsg,
-		}, status.Error(statusCode, errMsg)
-	}
-
-	return &userpb.DeleteUserVideoResponse{
-		Success: true,
-		Message: "Video deleted successfully",
-	}, nil
-}
-
+// GetDetailedProfile gets comprehensive profile information by profile ID
 func (h *ProfileHandler) GetDetailedProfile(ctx context.Context, req *userpb.GetDetailedProfileRequest) (*userpb.GetDetailedProfileResponse, error) {
 	h.logger.Info("GetDetailedProfile gRPC request", "profileID", req.ProfileId)
 
 	// Validate request
 	if req.ProfileId == 0 {
+		h.logger.Error("Invalid profile ID", "profileID", req.ProfileId)
 		return &userpb.GetDetailedProfileResponse{
 			Success: false,
 			Message: "Invalid profile ID",
@@ -1377,10 +482,10 @@ func (h *ProfileHandler) GetDetailedProfile(ctx context.Context, req *userpb.Get
 		var statusCode codes.Code
 
 		switch {
-		case errors.Is(err, services.ErrProfileNotFound):
+		case errors.Is(err, userErrors.ErrProfileNotFound):
 			errMsg = "Profile not found"
 			statusCode = codes.NotFound
-		case errors.Is(err, services.ErrInvalidInput):
+		case errors.Is(err, userErrors.ErrInvalidInput):
 			errMsg = "Invalid profile ID"
 			statusCode = codes.InvalidArgument
 		default:
@@ -1424,7 +529,7 @@ func (h *ProfileHandler) GetDetailedProfile(ctx context.Context, req *userpb.Get
 		responseProfile.ProfilePictureUrl = *detailedProfile.ProfilePictureURL
 	}
 
-	// Add partner preferences
+	// Add partner preferences if present
 	if detailedProfile.PartnerPreferences != nil {
 		prefs := detailedProfile.PartnerPreferences
 		var minAge, maxAge, minHeight, maxHeight int32
@@ -1488,7 +593,7 @@ func (h *ProfileHandler) GetDetailedProfile(ctx context.Context, req *userpb.Get
 		}
 	}
 
-	// Add additional photos
+	// Add additional photos if present
 	if len(detailedProfile.AdditionalPhotos) > 0 {
 		photos := make([]*userpb.UserPhotoData, len(detailedProfile.AdditionalPhotos))
 		for i, photo := range detailedProfile.AdditionalPhotos {
@@ -1501,7 +606,7 @@ func (h *ProfileHandler) GetDetailedProfile(ctx context.Context, req *userpb.Get
 		responseProfile.AdditionalPhotos = photos
 	}
 
-	// Add intro video
+	// Add intro video if present
 	if detailedProfile.IntroVideo != nil {
 		video := detailedProfile.IntroVideo
 		responseProfile.IntroVideo = &userpb.UserVideoData{
@@ -1514,6 +619,176 @@ func (h *ProfileHandler) GetDetailedProfile(ctx context.Context, req *userpb.Get
 			responseProfile.IntroVideo.DurationSeconds = int32(*video.DurationSeconds)
 		}
 	}
+
+	return &userpb.GetDetailedProfileResponse{
+		Success: true,
+		Message: "Detailed profile retrieved successfully",
+		Profile: responseProfile,
+	}, nil
+}
+
+// GetProfileForAdmin handles admin requests for detailed user profile information
+// This method bypasses normal authentication and returns complete user data
+func (h *ProfileHandler) GetProfileForAdmin(ctx context.Context, req *userpb.GetProfileForAdminRequest) (*userpb.GetDetailedProfileResponse, error) {
+	h.logger.Info("Admin requesting detailed user profile", "user_uuid", req.GetUserUuid())
+
+	// Validate input
+	if req.GetUserUuid() == "" {
+		h.logger.Error("Missing user UUID in admin request")
+		return &userpb.GetDetailedProfileResponse{
+			Success: false,
+			Message: "Invalid request",
+			Error:   "User UUID is required",
+		}, status.Error(codes.InvalidArgument, "User UUID is required")
+	}
+
+	// Call service layer (no authentication check for admin)
+	detailedProfile, err := h.profileService.GetDetailedProfileByUUID(ctx, req.GetUserUuid())
+	if err != nil {
+		h.logger.Error("Failed to get detailed profile for admin", "error", err, "user_uuid", req.GetUserUuid())
+
+		var errMsg string
+		var statusCode codes.Code
+		switch {
+		case errors.Is(err, userErrors.ErrProfileNotFound):
+			errMsg = "Profile not found"
+			statusCode = codes.NotFound
+		case errors.Is(err, userErrors.ErrInvalidInput):
+			errMsg = "Invalid user UUID"
+			statusCode = codes.InvalidArgument
+		default:
+			errMsg = "Failed to get detailed profile"
+			statusCode = codes.Internal
+		}
+
+		return &userpb.GetDetailedProfileResponse{
+			Success: false,
+			Message: "Failed to get detailed profile",
+			Error:   errMsg,
+		}, status.Error(statusCode, errMsg)
+	}
+
+	// Build the response using the same pattern as GetDetailedProfile
+	responseProfile := &userpb.DetailedProfileData{
+		Id:                    uint64(detailedProfile.ID),
+		IsBride:               detailedProfile.IsBride,
+		FullName:              detailedProfile.FullName,
+		PhysicallyChallenged:  detailedProfile.PhysicallyChallenged,
+		Community:             string(detailedProfile.Community),
+		MaritalStatus:         string(detailedProfile.MaritalStatus),
+		Profession:            string(detailedProfile.Profession),
+		ProfessionType:        string(detailedProfile.ProfessionType),
+		HighestEducationLevel: string(detailedProfile.HighestEducationLevel),
+		HomeDistrict:          string(detailedProfile.HomeDistrict),
+		LastLogin:             timestamppb.New(detailedProfile.LastLogin),
+		Age:                   int32(detailedProfile.Age),
+	}
+
+	// Add optional fields
+	if detailedProfile.DateOfBirth != nil {
+		responseProfile.DateOfBirth = detailedProfile.DateOfBirth.Format("2006-01-02")
+	}
+
+	if detailedProfile.HeightCM != nil {
+		responseProfile.HeightCm = int32(*detailedProfile.HeightCM)
+	}
+
+	if detailedProfile.ProfilePictureURL != nil {
+		responseProfile.ProfilePictureUrl = *detailedProfile.ProfilePictureURL
+	}
+
+	// Add partner preferences if present
+	if detailedProfile.PartnerPreferences != nil {
+		prefs := detailedProfile.PartnerPreferences
+		var minAge, maxAge, minHeight, maxHeight int32
+
+		if prefs.MinAgeYears != nil {
+			minAge = int32(*prefs.MinAgeYears)
+		}
+		if prefs.MaxAgeYears != nil {
+			maxAge = int32(*prefs.MaxAgeYears)
+		}
+		if prefs.MinHeightCM != nil {
+			minHeight = int32(*prefs.MinHeightCM)
+		}
+		if prefs.MaxHeightCM != nil {
+			maxHeight = int32(*prefs.MaxHeightCM)
+		}
+
+		// Convert enum types to strings
+		communities := make([]string, len(prefs.PreferredCommunities))
+		for i, c := range prefs.PreferredCommunities {
+			communities[i] = string(c)
+		}
+
+		maritalStatus := make([]string, len(prefs.PreferredMaritalStatus))
+		for i, s := range prefs.PreferredMaritalStatus {
+			maritalStatus[i] = string(s)
+		}
+
+		professions := make([]string, len(prefs.PreferredProfessions))
+		for i, p := range prefs.PreferredProfessions {
+			professions[i] = string(p)
+		}
+
+		professionTypes := make([]string, len(prefs.PreferredProfessionTypes))
+		for i, pt := range prefs.PreferredProfessionTypes {
+			professionTypes[i] = string(pt)
+		}
+
+		educationLevels := make([]string, len(prefs.PreferredEducationLevels))
+		for i, el := range prefs.PreferredEducationLevels {
+			educationLevels[i] = string(el)
+		}
+
+		homeDistricts := make([]string, len(prefs.PreferredHomeDistricts))
+		for i, hd := range prefs.PreferredHomeDistricts {
+			homeDistricts[i] = string(hd)
+		}
+
+		responseProfile.PartnerPreferences = &userpb.PartnerPreferencesData{
+			MinAgeYears:                minAge,
+			MaxAgeYears:                maxAge,
+			MinHeightCm:                minHeight,
+			MaxHeightCm:                maxHeight,
+			AcceptPhysicallyChallenged: prefs.AcceptPhysicallyChallenged,
+			PreferredCommunities:       communities,
+			PreferredMaritalStatus:     maritalStatus,
+			PreferredProfessions:       professions,
+			PreferredProfessionTypes:   professionTypes,
+			PreferredEducationLevels:   educationLevels,
+			PreferredHomeDistricts:     homeDistricts,
+		}
+	}
+
+	// Add additional photos if present
+	if len(detailedProfile.AdditionalPhotos) > 0 {
+		photos := make([]*userpb.UserPhotoData, len(detailedProfile.AdditionalPhotos))
+		for i, photo := range detailedProfile.AdditionalPhotos {
+			photos[i] = &userpb.UserPhotoData{
+				PhotoUrl:     photo.PhotoURL,
+				DisplayOrder: int32(photo.DisplayOrder),
+				CreatedAt:    timestamppb.New(photo.CreatedAt),
+			}
+		}
+		responseProfile.AdditionalPhotos = photos
+	}
+
+	// Add intro video if present
+	if detailedProfile.IntroVideo != nil {
+		video := detailedProfile.IntroVideo
+		responseProfile.IntroVideo = &userpb.UserVideoData{
+			VideoUrl:  video.VideoURL,
+			FileName:  video.FileName,
+			FileSize:  video.FileSize,
+			CreatedAt: timestamppb.New(video.CreatedAt),
+		}
+		if video.DurationSeconds != nil {
+			responseProfile.IntroVideo.DurationSeconds = int32(*video.DurationSeconds)
+		}
+	}
+
+	h.logger.Info("Successfully retrieved detailed profile for admin", "user_uuid", req.GetUserUuid())
 
 	return &userpb.GetDetailedProfileResponse{
 		Success: true,

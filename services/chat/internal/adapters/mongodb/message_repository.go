@@ -2,13 +2,14 @@ package mongodb
 
 import (
 	"context"
-	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/utils/indianstandardtime"
+	"github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/constants"
 	"github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/domain/models"
 	repositories "github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/domain/repository"
 )
@@ -19,13 +20,13 @@ type MessageRepo struct {
 
 func NewMessageRepository(db *mongo.Database) repositories.MessageRepository {
 	return &MessageRepo{
-		collection: db.Collection(models.Message{}.CollectionName()),
+		collection: db.Collection(constants.MessagesCollection),
 	}
 }
 
 func (r *MessageRepo) CreateMessage(ctx context.Context, message *models.Message) error {
-	// TODO: Implement message creation
-	message.SentAt = time.Now()
+	now := indianstandardtime.Now()
+	message.SentAt = now
 	message.IsDeleted = false
 
 	result, err := r.collection.InsertOne(ctx, message)
@@ -38,7 +39,14 @@ func (r *MessageRepo) CreateMessage(ctx context.Context, message *models.Message
 }
 
 func (r *MessageRepo) GetMessagesByConversation(ctx context.Context, conversationID primitive.ObjectID, limit, offset int) ([]*models.Message, error) {
-	// TODO: Implement get messages by conversation with pagination
+	// Apply default and max limits
+	if limit <= 0 {
+		limit = constants.DefaultMessageLimit
+	}
+	if limit > constants.MaxMessageLimit {
+		limit = constants.MaxMessageLimit
+	}
+
 	filter := bson.M{
 		"conversation_id": conversationID,
 		"is_deleted":      false,
@@ -68,7 +76,6 @@ func (r *MessageRepo) GetMessagesByConversation(ctx context.Context, conversatio
 }
 
 func (r *MessageRepo) GetMessageByID(ctx context.Context, id primitive.ObjectID) (*models.Message, error) {
-	// TODO: Implement get message by ID
 	var message models.Message
 	filter := bson.M{
 		"_id":        id,
@@ -83,7 +90,6 @@ func (r *MessageRepo) GetMessageByID(ctx context.Context, id primitive.ObjectID)
 }
 
 func (r *MessageRepo) UpdateMessage(ctx context.Context, id primitive.ObjectID, text string) error {
-	// TODO: Implement message update
 	update := bson.M{
 		"$set": bson.M{
 			"text": text,
@@ -95,7 +101,6 @@ func (r *MessageRepo) UpdateMessage(ctx context.Context, id primitive.ObjectID, 
 }
 
 func (r *MessageRepo) SoftDeleteMessage(ctx context.Context, id primitive.ObjectID) error {
-	// TODO: Implement soft delete message
 	update := bson.M{
 		"$set": bson.M{
 			"is_deleted": true,

@@ -1,5 +1,5 @@
 CREATE TYPE match_status_enum AS ENUM (
-  'liked', 'disliked', 'passed'
+  'liked', 'passed'
 );
 
 CREATE TABLE profile_matches (

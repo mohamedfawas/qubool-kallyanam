@@ -29,6 +29,7 @@ type ServicesConfig struct {
 	User    ServiceConfig `mapstructure:"user"`
 	Chat    ServiceConfig `mapstructure:"chat"`
 	Payment ServiceConfig `mapstructure:"payment"`
+	Admin   ServiceConfig `mapstructure:"admin"`
 }
 
 // AuthConfig contains authentication-related configuration
@@ -81,6 +82,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	if paymentAddr := os.Getenv("PAYMENT_SERVICE_ADDRESS"); paymentAddr != "" {
 		config.Services.Payment.Address = paymentAddr
+	}
+
+	if adminAddr := os.Getenv("ADMIN_SERVICE_ADDRESS"); adminAddr != "" {
+		config.Services.Admin.Address = adminAddr
 	}
 
 	// JWT environment variables

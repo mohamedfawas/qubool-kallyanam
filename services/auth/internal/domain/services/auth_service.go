@@ -12,6 +12,7 @@ import (
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/security/encryption"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/utils/indianstandardtime"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/constants"
+	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/domain/repositories"
 	autherrors "github.com/mohamedfawas/qubool-kallyanam/services/auth/internal/errors"
 )
@@ -363,4 +364,33 @@ func (s *AuthService) generateAdminTokens(adminID uuid.UUID) (*TokenPair, error)
 		RefreshToken: refreshToken,
 		ExpiresIn:    int32(s.accessTokenTTL.Seconds()),
 	}, nil
+}
+
+// GetUsersList retrieves users list for admin (reuse existing patterns)
+func (s *AuthService) GetUsersList(ctx context.Context, params repositories.GetUsersParams) ([]*models.User, int64, error) {
+	s.logger.Info("Getting users list", "limit", params.Limit, "offset", params.Offset)
+
+	users, total, err := s.userRepo.GetUsers(ctx, params)
+	if err != nil {
+		s.logger.Error("Failed to get users from repository", "error", err)
+		return nil, 0, fmt.Errorf("failed to get users: %w", err)
+	}
+
+	s.logger.Info("Successfully retrieved users", "count", len(users), "total", total)
+	return users, total, nil
+}
+
+// GetUserByIdentifier retrieves single user by field (reuse existing GetUser pattern)
+func (s *AuthService) GetUserByIdentifier(ctx context.Context, field, value string) (*models.User, error) {
+	s.logger.Info("Getting user by identifier", "field", field, "value", value)
+
+	// Reuse existing repository method
+	user, err := s.userRepo.GetUser(ctx, field, value)
+	if err != nil {
+		s.logger.Error("Failed to get user from repository", "error", err, "field", field)
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	s.logger.Info("Successfully retrieved user", "found", user != nil)
+	return user, nil
 }

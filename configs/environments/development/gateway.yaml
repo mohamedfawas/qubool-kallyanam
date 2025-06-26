@@ -1,9 +1,12 @@
-# configs/environments/development/gateway.yaml
-server:
-  port: 8080
-  timeout: 30s
-  
+# Add admin service configuration:
 services:
-  user: "user-service:50051"
-  auth: "auth-service:50052"
-  chat: "chat-service:50053"
+  auth:
+    address: "auth-service:50051"
+  user:
+    address: "user-service:50053"
+  chat:
+    address: "chat-service:50054"
+  payment:
+    address: "payment-service:50055"
+  admin:                              
+    address: "admin-service:50052"    

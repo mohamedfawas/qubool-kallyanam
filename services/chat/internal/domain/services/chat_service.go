@@ -2,24 +2,17 @@ package services
 
 import (
 	"context"
-	"errors"
 	"sort"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/utils/indianstandardtime"
+	"github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/constants"
 	"github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/domain/models"
 	repositories "github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/domain/repository"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-)
-
-var (
-	ErrConversationNotFound = errors.New("conversation not found")
-	ErrMessageNotFound      = errors.New("message not found")
-	ErrUnauthorized         = errors.New("unauthorized access")
-	ErrInvalidInput         = errors.New("invalid input")
-	ErrDuplicateParticipant = errors.New("cannot create conversation with yourself")
+	chaterrors "github.com/mohamedfawas/qubool-kallyanam/services/chat/internal/errors"
 )
 
 type ChatService struct {
@@ -45,12 +38,12 @@ func (s *ChatService) CreateConversation(ctx context.Context, userID, participan
 
 	// Validate input
 	if userID == "" || participantID == "" {
-		return nil, ErrInvalidInput
+		return nil, chaterrors.ErrInvalidInput
 	}
 
 	// Prevent user from creating conversation with themselves
 	if userID == participantID {
-		return nil, ErrDuplicateParticipant
+		return nil, chaterrors.ErrDuplicateParticipant
 	}
 
 	// Sort participants to ensure consistent ordering for lookups
@@ -92,29 +85,29 @@ func (s *ChatService) GetUserConversations(ctx context.Context, userID string, l
 
 	// Validate input
 	if userID == "" {
-		return nil, 0, ErrInvalidInput
+		return nil, 0, chaterrors.ErrInvalidInput
 	}
 
-	// Validate and set default pagination
+	// Validate and set default pagination using constants
 	if limit <= 0 {
-		limit = 20 // Default limit
+		limit = constants.DefaultConversationLimit
 	}
-	if limit > 50 {
-		limit = 50 // Max limit
+	if limit > constants.MaxConversationLimit {
+		limit = constants.MaxConversationLimit
 	}
 	if offset < 0 {
-		offset = 0 // Default offset
+		offset = 0
 	}
 
 	// Get conversations for the user
-	conversations, err := s.conversationRepo.GetUserConversations(ctx, userID, limit+1, offset) // Get one extra to check if there are more
+	conversations, err := s.conversationRepo.GetUserConversations(ctx, userID, limit+1, offset)
 	if err != nil {
 		s.logger.Error("Failed to get user conversations", "error", err)
 		return nil, 0, err
 	}
 
 	// Calculate total count for pagination
-	allConversations, err := s.conversationRepo.GetUserConversations(ctx, userID, 0, 0) // Get all to count
+	allConversations, err := s.conversationRepo.GetUserConversations(ctx, userID, 0, 0)
 	if err != nil {
 		s.logger.Error("Failed to get total conversation count", "error", err)
 		allConversations = conversations // Fallback to current batch
@@ -125,7 +118,7 @@ func (s *ChatService) GetUserConversations(ctx context.Context, userID string, l
 	// Check if there are more conversations
 	hasMore := len(conversations) > limit
 	if hasMore {
-		conversations = conversations[:limit] // Remove the extra conversation we fetched
+		conversations = conversations[:limit]
 	}
 
 	s.logger.Info("Retrieved conversations successfully", "count", len(conversations), "total", total)
@@ -137,15 +130,15 @@ func (s *ChatService) SendMessage(ctx context.Context, userID string, conversati
 
 	// Validate input
 	if userID == "" {
-		return nil, ErrInvalidInput
+		return nil, chaterrors.ErrInvalidInput
 	}
 
 	if text == "" {
-		return nil, ErrInvalidInput
+		return nil, chaterrors.ErrEmptyMessage
 	}
 
-	if len(text) > 2000 {
-		return nil, ErrInvalidInput
+	if len(text) > constants.MaxMessageLength {
+		return nil, chaterrors.ErrMessageTooLong
 	}
 
 	// Check if conversation exists
@@ -153,24 +146,16 @@ func (s *ChatService) SendMessage(ctx context.Context, userID string, conversati
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			s.logger.Error("Conversation not found", "conversationID", conversationID.Hex())
-			return nil, ErrConversationNotFound
+			return nil, chaterrors.ErrConversationNotFound
 		}
 		s.logger.Error("Error fetching conversation", "error", err)
 		return nil, err
 	}
 
 	// Check authorization - user must be participant
-	isParticipant := false
-	for _, participant := range conversation.Participants {
-		if participant == userID {
-			isParticipant = true
-			break
-		}
-	}
-
-	if !isParticipant {
+	if !s.isUserParticipant(conversation.Participants, userID) {
 		s.logger.Error("User not authorized to send message", "userID", userID, "conversationID", conversationID.Hex())
-		return nil, ErrUnauthorized
+		return nil, chaterrors.ErrUserNotParticipant
 	}
 
 	// Create message
@@ -203,18 +188,18 @@ func (s *ChatService) GetMessages(ctx context.Context, userID string, conversati
 
 	// Validate input
 	if userID == "" {
-		return nil, 0, ErrInvalidInput
+		return nil, 0, chaterrors.ErrInvalidInput
 	}
 
-	// Validate and set default pagination
+	// Validate and set default pagination using constants
 	if limit <= 0 {
-		limit = 20 // Default limit
+		limit = constants.DefaultMessageLimit
 	}
-	if limit > 50 {
-		limit = 50 // Max limit
+	if limit > constants.MaxMessageLimit {
+		limit = constants.MaxMessageLimit
 	}
 	if offset < 0 {
-		offset = 0 // Default offset
+		offset = 0
 	}
 
 	// Check if conversation exists
@@ -222,24 +207,16 @@ func (s *ChatService) GetMessages(ctx context.Context, userID string, conversati
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			s.logger.Error("Conversation not found", "conversationID", conversationID.Hex())
-			return nil, 0, ErrConversationNotFound
+			return nil, 0, chaterrors.ErrConversationNotFound
 		}
 		s.logger.Error("Error fetching conversation", "error", err)
 		return nil, 0, err
 	}
 
 	// Check authorization - user must be participant
-	isParticipant := false
-	for _, participant := range conversation.Participants {
-		if participant == userID {
-			isParticipant = true
-			break
-		}
-	}
-
-	if !isParticipant {
+	if !s.isUserParticipant(conversation.Participants, userID) {
 		s.logger.Error("User not authorized to view messages", "userID", userID, "conversationID", conversationID.Hex())
-		return nil, 0, ErrUnauthorized
+		return nil, 0, chaterrors.ErrUserNotParticipant
 	}
 
 	// Get total count for pagination
@@ -265,6 +242,43 @@ func (s *ChatService) GetLatestMessage(ctx context.Context, conversationID primi
 }
 
 func (s *ChatService) DeleteMessage(ctx context.Context, userID string, messageID primitive.ObjectID) error {
-	s.logger.Info("TODO: DeleteMessage", "userID", userID, "messageID", messageID.Hex())
-	return errors.New("not implemented yet")
+	s.logger.Info("Deleting message", "userID", userID, "messageID", messageID.Hex())
+
+	// Get message to verify ownership
+	message, err := s.messageRepo.GetMessageByID(ctx, messageID)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return chaterrors.ErrMessageNotFound
+		}
+		return err
+	}
+
+	// Check if user is the sender
+	if message.SenderID != userID {
+		return chaterrors.ErrUnauthorized
+	}
+
+	// Check if message is already deleted
+	if message.IsDeleted {
+		return chaterrors.ErrMessageDeleted
+	}
+
+	// Soft delete the message
+	if err := s.messageRepo.SoftDeleteMessage(ctx, messageID); err != nil {
+		s.logger.Error("Failed to delete message", "error", err)
+		return err
+	}
+
+	s.logger.Info("Message deleted successfully", "messageID", messageID.Hex())
+	return nil
+}
+
+// Helper method to check if user is a participant in conversation
+func (s *ChatService) isUserParticipant(participants []string, userID string) bool {
+	for _, participant := range participants {
+		if participant == userID {
+			return true
+		}
+	}
+	return false
 }

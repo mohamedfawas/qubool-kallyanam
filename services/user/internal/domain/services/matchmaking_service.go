@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -10,38 +9,36 @@ import (
 	"github.com/google/uuid"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/config"
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/constants"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/models"
 	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/domain/repositories"
-)
-
-var (
-	ErrMatchActionFailed       = errors.New("failed to record match action")
-	ErrNoMatches               = errors.New("no matches found")
-	ErrInvalidActionType       = errors.New("invalid action type")
-	ErrInvalidMatchingCriteria = errors.New("invalid matching criteria")
+	"github.com/mohamedfawas/qubool-kallyanam/services/user/internal/errors"
 )
 
 type MatchmakingService struct {
-	matchRepo           repositories.MatchRepository
-	profileRepo         repositories.ProfileRepository
-	notificationService *NotificationService
-	logger              logging.Logger
-	matchWeights        config.MatchWeights
+	matchRepo              repositories.MatchRepository
+	profileRepo            repositories.ProfileRepository
+	partnerPreferencesRepo repositories.PartnerPreferencesRepository
+	notificationService    *NotificationService
+	logger                 logging.Logger
+	matchWeights           config.MatchWeights
 }
 
 func NewMatchmakingService(
 	matchRepo repositories.MatchRepository,
 	profileRepo repositories.ProfileRepository,
+	partnerPreferencesRepo repositories.PartnerPreferencesRepository,
 	notificationService *NotificationService,
 	logger logging.Logger,
 	config *config.Config,
 ) *MatchmakingService {
 	return &MatchmakingService{
-		matchRepo:           matchRepo,
-		profileRepo:         profileRepo,
-		notificationService: notificationService,
-		logger:              logger,
-		matchWeights:        config.Matchmaking.Weights,
+		matchRepo:              matchRepo,
+		profileRepo:            profileRepo,
+		partnerPreferencesRepo: partnerPreferencesRepo,
+		notificationService:    notificationService,
+		logger:                 logger,
+		matchWeights:           config.Matchmaking.Weights,
 	}
 }
 
@@ -58,7 +55,7 @@ func (s *MatchmakingService) GetRecommendedMatches(ctx context.Context, userID s
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return nil, nil, fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	userProfile, err := s.profileRepo.GetProfileByUserID(ctx, userUUID)
@@ -66,10 +63,11 @@ func (s *MatchmakingService) GetRecommendedMatches(ctx context.Context, userID s
 		return nil, nil, fmt.Errorf("error retrieving user profile: %w", err)
 	}
 	if userProfile == nil {
-		return nil, nil, ErrProfileNotFound
+		return nil, nil, errors.ErrProfileNotFound
 	}
 
-	preferences, err := s.profileRepo.GetPartnerPreferences(ctx, userProfile.ID)
+	// Use the dedicated PartnerPreferencesRepository
+	preferences, err := s.partnerPreferencesRepo.GetPartnerPreferences(ctx, userProfile.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error retrieving partner preferences: %w", err)
 	}
@@ -152,7 +150,7 @@ func (s *MatchmakingService) GetRecommendedMatches(ctx context.Context, userID s
 func (s *MatchmakingService) RecordMatchAction(ctx context.Context, userID string, profileID uint, action string) (bool, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return false, fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return false, fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	targetProfile, err := s.profileRepo.GetProfileByID(ctx, profileID)
@@ -161,7 +159,7 @@ func (s *MatchmakingService) RecordMatchAction(ctx context.Context, userID strin
 	}
 
 	if targetProfile == nil {
-		return false, fmt.Errorf("%w: target profile not found", ErrInvalidInput)
+		return false, fmt.Errorf("%w: target profile not found", errors.ErrInvalidInput)
 	}
 
 	targetUUID := targetProfile.UserID
@@ -169,20 +167,18 @@ func (s *MatchmakingService) RecordMatchAction(ctx context.Context, userID strin
 	var status models.MatchStatus
 	switch action {
 	case "liked":
-		status = models.MatchStatusLiked
-	case "disliked":
-		status = models.MatchStatusDisliked
+		status = constants.MatchStatusLiked
 	case "passed":
-		status = models.MatchStatusPassed
+		status = constants.MatchStatusPassed
 	default:
-		return false, fmt.Errorf("%w: action must be one of: liked, disliked, passed", ErrInvalidActionType)
+		return false, fmt.Errorf("%w: action must be one of: liked, disliked, passed", errors.ErrInvalidActionType)
 	}
 
 	if err := s.matchRepo.RecordMatchAction(ctx, userUUID, targetUUID, status); err != nil {
-		return false, fmt.Errorf("%w: %v", ErrMatchActionFailed, err)
+		return false, fmt.Errorf("%w: %v", errors.ErrMatchActionFailed, err)
 	}
 
-	if status == models.MatchStatusLiked && s.notificationService != nil {
+	if status == constants.MatchStatusLiked && s.notificationService != nil {
 		// Get the liker's profile information
 		likerProfile, err := s.profileRepo.GetProfileByUserID(ctx, userUUID)
 		if err != nil {
@@ -203,7 +199,7 @@ func (s *MatchmakingService) RecordMatchAction(ctx context.Context, userID strin
 	}
 
 	var isMutualMatch bool // default is false
-	if status == models.MatchStatusLiked {
+	if status == constants.MatchStatusLiked {
 		mutualMatch, err := s.matchRepo.CheckForMutualMatch(ctx, userUUID, targetUUID)
 		if err != nil {
 			s.logger.Error("Failed to check for mutual match", "error", err, "userID", userID, "profileID", profileID)
@@ -402,26 +398,20 @@ func (s *MatchmakingService) GetMatchHistory(ctx context.Context, userID string,
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return nil, nil, fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	var status *models.MatchStatus
 	if statusFilter != "" && statusFilter != "all" {
 		switch statusFilter {
 		case "liked":
-			s := models.MatchStatusLiked
-			status = &s
-		case "disliked":
-			s := models.MatchStatusDisliked
+			s := constants.MatchStatusLiked
 			status = &s
 		case "passed":
-			s := models.MatchStatusPassed
+			s := constants.MatchStatusPassed
 			status = &s
-		// Now `status` is either:
-		// - nil (no filter)
-		// - a pointer to one of the valid MatchStatus values (liked, disliked, passed)
 		default:
-			return nil, nil, fmt.Errorf("%w: status must be one of: liked, disliked, passed, all", ErrInvalidInput)
+			return nil, nil, fmt.Errorf("%w: status must be one of: liked, disliked, passed, all", errors.ErrInvalidInput)
 		}
 	}
 
@@ -445,7 +435,7 @@ func (s *MatchmakingService) GetMatchHistory(ctx context.Context, userID string,
 func (s *MatchmakingService) UpdateMatchAction(ctx context.Context, userID string, profileID uint, action string) (bool, bool, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return false, false, fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return false, false, fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	// Get target profile using profile ID
@@ -455,7 +445,7 @@ func (s *MatchmakingService) UpdateMatchAction(ctx context.Context, userID strin
 	}
 
 	if targetProfile == nil {
-		return false, false, fmt.Errorf("%w: target profile not found", ErrInvalidInput)
+		return false, false, fmt.Errorf("%w: target profile not found", errors.ErrInvalidInput)
 	}
 
 	targetUUID := targetProfile.UserID
@@ -464,13 +454,11 @@ func (s *MatchmakingService) UpdateMatchAction(ctx context.Context, userID strin
 	var newStatus models.MatchStatus
 	switch action {
 	case "liked":
-		newStatus = models.MatchStatusLiked
-	case "disliked":
-		newStatus = models.MatchStatusDisliked
+		newStatus = constants.MatchStatusLiked
 	case "passed":
-		newStatus = models.MatchStatusPassed
+		newStatus = constants.MatchStatusPassed
 	default:
-		return false, false, fmt.Errorf("%w: action must be one of: liked, disliked, passed", ErrInvalidActionType)
+		return false, false, fmt.Errorf("%w: action must be one of: liked, disliked, passed", errors.ErrInvalidActionType)
 	}
 
 	// Check if there was a previous mutual match
@@ -482,14 +470,14 @@ func (s *MatchmakingService) UpdateMatchAction(ctx context.Context, userID strin
 
 	// Update the match action
 	if err := s.matchRepo.RecordMatchAction(ctx, userUUID, targetUUID, newStatus); err != nil {
-		return false, false, fmt.Errorf("%w: %v", ErrMatchActionFailed, err)
+		return false, false, fmt.Errorf("%w: %v", errors.ErrMatchActionFailed, err)
 	}
 
 	// Check for new mutual match status
 	var isMutualMatch bool
 	var wasMutualMatchBroken bool
 
-	if newStatus == models.MatchStatusLiked {
+	if newStatus == constants.MatchStatusLiked {
 		// Check if this creates a new mutual match
 		mutualMatch, err := s.matchRepo.CheckForMutualMatch(ctx, userUUID, targetUUID)
 		if err != nil {
@@ -524,7 +512,6 @@ func (s *MatchmakingService) deactivateMutualMatch(ctx context.Context, userID1,
 		userID1, userID2 = userID2, userID1
 	}
 
-	// This would need to be added to the repository interface
 	return s.matchRepo.DeactivateMutualMatch(ctx, userID1, userID2)
 }
 
@@ -543,7 +530,7 @@ func (s *MatchmakingService) GetMutualMatches(ctx context.Context, userID string
 	// Parse user ID
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: invalid user ID format: %v", ErrInvalidInput, err)
+		return nil, nil, fmt.Errorf("%w: invalid user ID format: %v", errors.ErrInvalidInput, err)
 	}
 
 	// Get mutual matches from repository

@@ -26,6 +26,8 @@ const (
 	AuthService_RefreshToken_FullMethodName = "/auth.v1.AuthService/RefreshToken"
 	AuthService_AdminLogin_FullMethodName   = "/auth.v1.AuthService/AdminLogin"
 	AuthService_Delete_FullMethodName       = "/auth.v1.AuthService/Delete"
+	AuthService_GetUsersList_FullMethodName = "/auth.v1.AuthService/GetUsersList"
+	AuthService_GetUser_FullMethodName      = "/auth.v1.AuthService/GetUser"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -46,6 +48,9 @@ type AuthServiceClient interface {
 	AdminLogin(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	// Delete soft deletes a user account
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
+	// Admin methods for user management
+	GetUsersList(ctx context.Context, in *GetUsersListRequest, opts ...grpc.CallOption) (*GetUsersListResponse, error)
+	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error)
 }
 
 type authServiceClient struct {
@@ -126,6 +131,26 @@ func (c *authServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts 
 	return out, nil
 }
 
+func (c *authServiceClient) GetUsersList(ctx context.Context, in *GetUsersListRequest, opts ...grpc.CallOption) (*GetUsersListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUsersListResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetUsersList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUserResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -144,6 +169,9 @@ type AuthServiceServer interface {
 	AdminLogin(context.Context, *LoginRequest) (*LoginResponse, error)
 	// Delete soft deletes a user account
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
+	// Admin methods for user management
+	GetUsersList(context.Context, *GetUsersListRequest) (*GetUsersListResponse, error)
+	GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -174,6 +202,12 @@ func (UnimplementedAuthServiceServer) AdminLogin(context.Context, *LoginRequest)
 }
 func (UnimplementedAuthServiceServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedAuthServiceServer) GetUsersList(context.Context, *GetUsersListRequest) (*GetUsersListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUsersList not implemented")
+}
+func (UnimplementedAuthServiceServer) GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUser not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -322,6 +356,42 @@ func _AuthService_Delete_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_GetUsersList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUsersListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetUsersList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetUsersList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetUsersList(ctx, req.(*GetUsersListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetUser(ctx, req.(*GetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -356,6 +426,14 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _AuthService_Delete_Handler,
+		},
+		{
+			MethodName: "GetUsersList",
+			Handler:    _AuthService_GetUsersList_Handler,
+		},
+		{
+			MethodName: "GetUser",
+			Handler:    _AuthService_GetUser_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

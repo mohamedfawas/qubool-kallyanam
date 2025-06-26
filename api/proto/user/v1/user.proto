@@ -30,6 +30,7 @@ service UserService {
   rpc GetUserVideo(GetUserVideoRequest) returns (GetUserVideoResponse);
   rpc DeleteUserVideo(DeleteUserVideoRequest) returns (DeleteUserVideoResponse);
   rpc GetDetailedProfile(GetDetailedProfileRequest) returns (GetDetailedProfileResponse);
+  rpc GetProfileForAdmin(GetProfileForAdminRequest) returns (GetDetailedProfileResponse);
 }
 
 message UpdateProfileRequest {
@@ -227,7 +228,7 @@ message PaginationData {
 
 message RecordMatchActionRequest {
   uint64 profile_id = 1;  // Changed from string target_user_id
-  string action = 2;      // "liked", "disliked", or "passed"
+  string action = 2;      // "liked" or "passed"
 }
 
 message RecordMatchActionResponse {
@@ -238,7 +239,7 @@ message RecordMatchActionResponse {
 }
 
 message GetMatchHistoryRequest {
-  string status = 1;    // Optional: "liked", "disliked", "passed", or empty for all
+  string status = 1;    // Optional: "liked" or "passed"
   int32 limit = 2;      // Number of results (default 20, max 50)
   int32 offset = 3;     // Pagination offset (default 0)
 }
@@ -264,13 +265,13 @@ message MatchHistoryItem {
   string highest_education_level = 10;
   string home_district = 11;
   string profile_picture_url = 12;
-  string action = 13;                           // "liked", "disliked", "passed"
+  string action = 13;                           // "liked" or "passed"
   google.protobuf.Timestamp action_date = 14;   // When the action was taken
 }
 
 message UpdateMatchActionRequest {
   uint64 profile_id = 1;  // Profile ID to update action for
-  string action = 2;      // New action: "liked", "disliked", or "passed"
+  string action = 2;      // New action: "liked" or "passed"
 }
 
 message UpdateMatchActionResponse {
@@ -465,4 +466,8 @@ message GetDetailedProfileResponse {
   string message = 2;
   string error = 3;
   DetailedProfileData profile = 4;
+}
+
+message GetProfileForAdminRequest {
+  string user_uuid = 1; // User UUID from auth service
 }

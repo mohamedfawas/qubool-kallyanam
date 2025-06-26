@@ -5,6 +5,7 @@ import (
 
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	adminHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/admin"
 	authHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
 	chatHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/chat"
 	paymentHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/payment"
@@ -19,6 +20,7 @@ func SetupRouter(
 	userH *userHandler.Handler,
 	chatH *chatHandler.Handler,
 	paymentH *paymentHandler.Handler,
+	adminH *adminHandler.Handler,
 	auth *middleware.Auth,
 	logger logging.Logger,
 ) {
@@ -40,6 +42,7 @@ func SetupRouter(
 	registerUserRoutes(v1.Group("/user"), userH, auth)
 	registerChatRoutes(v1.Group("/chat"), chatH, auth)
 	registerPaymentRoutes(v1.Group("/payment"), paymentH, auth)
+	registerAdminRoutes(v1.Group("/admin"), adminH, auth)
 	// Health check endpoint
 	r.GET("/health", healthHandler)
 }
@@ -151,4 +154,23 @@ func registerPaymentRoutes(rg *gin.RouterGroup, h *paymentHandler.Handler, auth 
 // healthHandler handles the health check endpoint.
 func healthHandler(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "UP"})
+}
+
+func registerAdminRoutes(rg *gin.RouterGroup, h *adminHandler.Handler, auth *middleware.Auth) {
+	// All admin routes require authentication and admin role
+	rg.Use(
+		auth.Authenticate(),
+		auth.RequireRole(jwt.RoleAdmin),
+	)
+	{
+		rg.GET("/users", func(c *gin.Context) {
+			// Check if it's a search request
+			if search := c.Query("search"); search != "" {
+				h.SearchUsers(c)
+				return
+			}
+			h.GetUsers(c)
+		})
+		rg.GET("/users/:id", h.GetUser)
+	}
 }

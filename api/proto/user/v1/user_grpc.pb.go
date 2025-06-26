@@ -41,6 +41,7 @@ const (
 	UserService_GetUserVideo_FullMethodName             = "/user.v1.UserService/GetUserVideo"
 	UserService_DeleteUserVideo_FullMethodName          = "/user.v1.UserService/DeleteUserVideo"
 	UserService_GetDetailedProfile_FullMethodName       = "/user.v1.UserService/GetDetailedProfile"
+	UserService_GetProfileForAdmin_FullMethodName       = "/user.v1.UserService/GetProfileForAdmin"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -69,6 +70,7 @@ type UserServiceClient interface {
 	GetUserVideo(ctx context.Context, in *GetUserVideoRequest, opts ...grpc.CallOption) (*GetUserVideoResponse, error)
 	DeleteUserVideo(ctx context.Context, in *DeleteUserVideoRequest, opts ...grpc.CallOption) (*DeleteUserVideoResponse, error)
 	GetDetailedProfile(ctx context.Context, in *GetDetailedProfileRequest, opts ...grpc.CallOption) (*GetDetailedProfileResponse, error)
+	GetProfileForAdmin(ctx context.Context, in *GetProfileForAdminRequest, opts ...grpc.CallOption) (*GetDetailedProfileResponse, error)
 }
 
 type userServiceClient struct {
@@ -299,6 +301,16 @@ func (c *userServiceClient) GetDetailedProfile(ctx context.Context, in *GetDetai
 	return out, nil
 }
 
+func (c *userServiceClient) GetProfileForAdmin(ctx context.Context, in *GetProfileForAdminRequest, opts ...grpc.CallOption) (*GetDetailedProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDetailedProfileResponse)
+	err := c.cc.Invoke(ctx, UserService_GetProfileForAdmin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -325,6 +337,7 @@ type UserServiceServer interface {
 	GetUserVideo(context.Context, *GetUserVideoRequest) (*GetUserVideoResponse, error)
 	DeleteUserVideo(context.Context, *DeleteUserVideoRequest) (*DeleteUserVideoResponse, error)
 	GetDetailedProfile(context.Context, *GetDetailedProfileRequest) (*GetDetailedProfileResponse, error)
+	GetProfileForAdmin(context.Context, *GetProfileForAdminRequest) (*GetDetailedProfileResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -400,6 +413,9 @@ func (UnimplementedUserServiceServer) DeleteUserVideo(context.Context, *DeleteUs
 }
 func (UnimplementedUserServiceServer) GetDetailedProfile(context.Context, *GetDetailedProfileRequest) (*GetDetailedProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDetailedProfile not implemented")
+}
+func (UnimplementedUserServiceServer) GetProfileForAdmin(context.Context, *GetProfileForAdminRequest) (*GetDetailedProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetProfileForAdmin not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -818,6 +834,24 @@ func _UserService_GetDetailedProfile_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_GetProfileForAdmin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProfileForAdminRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetProfileForAdmin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetProfileForAdmin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetProfileForAdmin(ctx, req.(*GetProfileForAdminRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -912,6 +946,10 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDetailedProfile",
 			Handler:    _UserService_GetDetailedProfile_Handler,
+		},
+		{
+			MethodName: "GetProfileForAdmin",
+			Handler:    _UserService_GetProfileForAdmin_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -9,11 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/admin" // ✅ Move here
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/chat"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/payment"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/user"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/config"
+	adminHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/admin" // ✅ Move here
 	authHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
 	chatHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/chat"
 	paymentHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/payment"
@@ -31,6 +33,7 @@ type Server struct {
 	userClient    *user.Client
 	chatClient    *chat.Client
 	paymentClient *payment.Client
+	adminClient   *admin.Client
 	jwtManager    *jwt.Manager
 	auth          *middleware.Auth
 }
@@ -69,6 +72,11 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		return nil, fmt.Errorf("failed to create payment client: %w", err)
 	}
 
+	adminClient, err := admin.NewClient(cfg.Services.Admin.Address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create admin client: %w", err)
+	}
+
 	// Create JWT Manager for token validation
 	jwtManager := jwt.NewManager(jwt.Config{
 		SecretKey:       cfg.Auth.JWT.SecretKey,
@@ -104,6 +112,7 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		userClient:    userClient,
 		chatClient:    chatClient,
 		paymentClient: paymentClient,
+		adminClient:   adminClient,
 		jwtManager:    jwtManager,
 		auth:          auth,
 	}
@@ -122,12 +131,13 @@ func (s *Server) setupRoutes() {
 	userHandler := userHandler.NewHandler(s.userClient, s.logger)
 	chatHandler := chatHandler.NewHandler(s.chatClient, s.userClient, s.logger)
 	paymentHandler := paymentHandler.NewHandler(s.paymentClient, s.logger)
-
+	adminHandler := adminHandler.NewHandler(s.adminClient, s.logger)
 	SetupRouter(s.router,
 		authHandler,
 		userHandler,
 		chatHandler,
 		paymentHandler,
+		adminHandler,
 		s.auth,
 		s.logger)
 }
@@ -153,6 +163,9 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	if s.paymentClient != nil {
 		s.paymentClient.Close()
+	}
+	if s.adminClient != nil {
+		s.adminClient.Close()
 	}
 	return s.httpServer.Shutdown(ctx)
 }

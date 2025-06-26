@@ -18,13 +18,13 @@ func (h *Handler) RecordMatchAction(c *gin.Context) {
 	}
 
 	var req struct {
-		ProfileID uint64 `json:"profile_id" binding:"required"` // Changed from TargetUserID string
-		Action    string `json:"action" binding:"required,oneof=liked disliked passed"`
+		ProfileID uint64 `json:"profile_id" binding:"required,min=1"`
+		Action    string `json:"action" binding:"required,oneof=liked passed"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.Error("Invalid request body", "error", err)
-		pkghttp.Error(c, pkghttp.NewBadRequest("Invalid request format. Action must be one of: liked, disliked, passed", err))
+		pkghttp.Error(c, pkghttp.NewBadRequest("Invalid request format. Action must be one of: liked or passed", err))
 		return
 	}
 
