@@ -13,6 +13,7 @@ type Config struct {
 	HTTP        HTTPConfig     `mapstructure:"http"`
 	Services    ServicesConfig `mapstructure:"services"`
 	Auth        AuthConfig     `mapstructure:"auth"`
+	Tracing     TracingConfig  `mapstructure:"tracing" yaml:"tracing"`
 }
 
 // HTTPConfig represents HTTP server configuration
@@ -48,6 +49,14 @@ type JWTConfig struct {
 // ServiceConfig represents a service configuration
 type ServiceConfig struct {
 	Address string `mapstructure:"address"`
+}
+
+type TracingConfig struct {
+	Enabled     bool    `mapstructure:"enabled" yaml:"enabled"`
+	ServiceName string  `mapstructure:"service_name" yaml:"service_name"`
+	Environment string  `mapstructure:"environment" yaml:"environment"`
+	JaegerURL   string  `mapstructure:"jaeger_url" yaml:"jaeger_url"`
+	SampleRate  float64 `mapstructure:"sample_rate" yaml:"sample_rate"`
 }
 
 // LoadConfig loads configuration from file and environment variables

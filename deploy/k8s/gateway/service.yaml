@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: qubool-kallyanam-gateway-service
+  namespace: qubool-kallyanam-production
+  labels:
+    app: qubool-kallyanam-gateway
+    tier: frontend
+spec:
+  selector:
+    app: qubool-kallyanam-gateway
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  type: ClusterIP

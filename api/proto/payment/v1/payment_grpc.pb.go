@@ -20,11 +20,11 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	PaymentService_CreatePaymentOrder_FullMethodName    = "/payment.v1.PaymentService/CreatePaymentOrder"
-	PaymentService_VerifyPayment_FullMethodName         = "/payment.v1.PaymentService/VerifyPayment"
 	PaymentService_GetSubscriptionStatus_FullMethodName = "/payment.v1.PaymentService/GetSubscriptionStatus"
 	PaymentService_GetPaymentHistory_FullMethodName     = "/payment.v1.PaymentService/GetPaymentHistory"
 	PaymentService_HandleWebhook_FullMethodName         = "/payment.v1.PaymentService/HandleWebhook"
 	PaymentService_CreatePaymentURL_FullMethodName      = "/payment.v1.PaymentService/CreatePaymentURL"
+	PaymentService_VerifyPayment_FullMethodName         = "/payment.v1.PaymentService/VerifyPayment"
 )
 
 // PaymentServiceClient is the client API for PaymentService service.
@@ -33,8 +33,6 @@ const (
 type PaymentServiceClient interface {
 	// Create a payment order for subscription
 	CreatePaymentOrder(ctx context.Context, in *CreatePaymentOrderRequest, opts ...grpc.CallOption) (*CreatePaymentOrderResponse, error)
-	// Verify payment and activate subscription
-	VerifyPayment(ctx context.Context, in *VerifyPaymentRequest, opts ...grpc.CallOption) (*VerifyPaymentResponse, error)
 	// Get subscription status
 	GetSubscriptionStatus(ctx context.Context, in *GetSubscriptionStatusRequest, opts ...grpc.CallOption) (*GetSubscriptionStatusResponse, error)
 	// Get payment history
@@ -43,6 +41,7 @@ type PaymentServiceClient interface {
 	HandleWebhook(ctx context.Context, in *WebhookRequest, opts ...grpc.CallOption) (*WebhookResponse, error)
 	// Add simple redirect-based payment
 	CreatePaymentURL(ctx context.Context, in *CreatePaymentURLRequest, opts ...grpc.CallOption) (*CreatePaymentURLResponse, error)
+	VerifyPayment(ctx context.Context, in *VerifyPaymentRequest, opts ...grpc.CallOption) (*VerifyPaymentResponse, error)
 }
 
 type paymentServiceClient struct {
@@ -57,16 +56,6 @@ func (c *paymentServiceClient) CreatePaymentOrder(ctx context.Context, in *Creat
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreatePaymentOrderResponse)
 	err := c.cc.Invoke(ctx, PaymentService_CreatePaymentOrder_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *paymentServiceClient) VerifyPayment(ctx context.Context, in *VerifyPaymentRequest, opts ...grpc.CallOption) (*VerifyPaymentResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(VerifyPaymentResponse)
-	err := c.cc.Invoke(ctx, PaymentService_VerifyPayment_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -113,14 +102,22 @@ func (c *paymentServiceClient) CreatePaymentURL(ctx context.Context, in *CreateP
 	return out, nil
 }
 
+func (c *paymentServiceClient) VerifyPayment(ctx context.Context, in *VerifyPaymentRequest, opts ...grpc.CallOption) (*VerifyPaymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyPaymentResponse)
+	err := c.cc.Invoke(ctx, PaymentService_VerifyPayment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PaymentServiceServer is the server API for PaymentService service.
 // All implementations must embed UnimplementedPaymentServiceServer
 // for forward compatibility.
 type PaymentServiceServer interface {
 	// Create a payment order for subscription
 	CreatePaymentOrder(context.Context, *CreatePaymentOrderRequest) (*CreatePaymentOrderResponse, error)
-	// Verify payment and activate subscription
-	VerifyPayment(context.Context, *VerifyPaymentRequest) (*VerifyPaymentResponse, error)
 	// Get subscription status
 	GetSubscriptionStatus(context.Context, *GetSubscriptionStatusRequest) (*GetSubscriptionStatusResponse, error)
 	// Get payment history
@@ -129,6 +126,7 @@ type PaymentServiceServer interface {
 	HandleWebhook(context.Context, *WebhookRequest) (*WebhookResponse, error)
 	// Add simple redirect-based payment
 	CreatePaymentURL(context.Context, *CreatePaymentURLRequest) (*CreatePaymentURLResponse, error)
+	VerifyPayment(context.Context, *VerifyPaymentRequest) (*VerifyPaymentResponse, error)
 	mustEmbedUnimplementedPaymentServiceServer()
 }
 
@@ -142,9 +140,6 @@ type UnimplementedPaymentServiceServer struct{}
 func (UnimplementedPaymentServiceServer) CreatePaymentOrder(context.Context, *CreatePaymentOrderRequest) (*CreatePaymentOrderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreatePaymentOrder not implemented")
 }
-func (UnimplementedPaymentServiceServer) VerifyPayment(context.Context, *VerifyPaymentRequest) (*VerifyPaymentResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method VerifyPayment not implemented")
-}
 func (UnimplementedPaymentServiceServer) GetSubscriptionStatus(context.Context, *GetSubscriptionStatusRequest) (*GetSubscriptionStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSubscriptionStatus not implemented")
 }
@@ -156,6 +151,9 @@ func (UnimplementedPaymentServiceServer) HandleWebhook(context.Context, *Webhook
 }
 func (UnimplementedPaymentServiceServer) CreatePaymentURL(context.Context, *CreatePaymentURLRequest) (*CreatePaymentURLResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreatePaymentURL not implemented")
+}
+func (UnimplementedPaymentServiceServer) VerifyPayment(context.Context, *VerifyPaymentRequest) (*VerifyPaymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyPayment not implemented")
 }
 func (UnimplementedPaymentServiceServer) mustEmbedUnimplementedPaymentServiceServer() {}
 func (UnimplementedPaymentServiceServer) testEmbeddedByValue()                        {}
@@ -192,24 +190,6 @@ func _PaymentService_CreatePaymentOrder_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(PaymentServiceServer).CreatePaymentOrder(ctx, req.(*CreatePaymentOrderRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PaymentService_VerifyPayment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(VerifyPaymentRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PaymentServiceServer).VerifyPayment(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PaymentService_VerifyPayment_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PaymentServiceServer).VerifyPayment(ctx, req.(*VerifyPaymentRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -286,6 +266,24 @@ func _PaymentService_CreatePaymentURL_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PaymentService_VerifyPayment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyPaymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).VerifyPayment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_VerifyPayment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).VerifyPayment(ctx, req.(*VerifyPaymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PaymentService_ServiceDesc is the grpc.ServiceDesc for PaymentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -296,10 +294,6 @@ var PaymentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreatePaymentOrder",
 			Handler:    _PaymentService_CreatePaymentOrder_Handler,
-		},
-		{
-			MethodName: "VerifyPayment",
-			Handler:    _PaymentService_VerifyPayment_Handler,
 		},
 		{
 			MethodName: "GetSubscriptionStatus",
@@ -316,6 +310,10 @@ var PaymentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreatePaymentURL",
 			Handler:    _PaymentService_CreatePaymentURL_Handler,
+		},
+		{
+			MethodName: "VerifyPayment",
+			Handler:    _PaymentService_VerifyPayment_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

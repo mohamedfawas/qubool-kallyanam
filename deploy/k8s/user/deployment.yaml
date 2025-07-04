@@ -1,0 +1,208 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qubool-kallyanam-user
+  namespace: qubool-kallyanam-production
+  labels:
+    app: qubool-kallyanam-user
+    tier: backend
+    version: v1
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: qubool-kallyanam-user
+  template:
+    metadata:
+      labels:
+        app: qubool-kallyanam-user
+        tier: backend
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "50053"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: user
+        image: gcr.io/${PROJECT_ID}/qubool-kallyanam-user:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 50053
+          name: grpc
+        env:
+        # Application Configuration
+        - name: CONFIG_PATH
+          value: "/app/configs/config.yaml"
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: environment
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: log-level
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: jwt-secret
+        
+        # Database Configuration
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-host
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-password
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-port
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: user-db-name
+        - name: DB_SSLMODE
+          value: "require"
+        
+        # Redis Configuration
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: redis-url
+        - name: REDIS_PORT
+          value: "6379"
+        
+        # Cloud Storage Configuration
+        - name: S3_ENDPOINT
+          value: "https://storage.googleapis.com"
+        - name: S3_PUBLIC_URL
+          value: "https://storage.googleapis.com"
+        - name: S3_REGION
+          value: "${REGION}"
+        - name: S3_BUCKET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: gcs-bucket-name
+        - name: S3_USE_SSL
+          value: "true"
+        
+        # Email Configuration
+        - name: SMTP_HOST
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: smtp-host
+        - name: SMTP_PORT
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: smtp-port
+        - name: SMTP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: smtp-username
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: smtp-password
+        - name: EMAIL_FROM
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: email-from
+        - name: EMAIL_FROM_NAME
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: email-from-name
+        
+        # Pub/Sub Configuration (Replacing RabbitMQ)
+        - name: RABBITMQ_DSN
+          value: "disabled"
+        - name: PUBSUB_PROJECT_ID
+          value: "${PROJECT_ID}"
+        - name: PUBSUB_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: pubsub-topic
+        
+        # Tracing Configuration
+        - name: TRACING_ENABLED
+          value: "true"
+        - name: TRACING_SERVICE_NAME
+          value: "qubool-kallyanam-user"
+        - name: TRACING_JAEGER_URL
+          value: "http://jaeger:4318"
+        
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        
+        # Health Probes for gRPC service
+        livenessProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50053"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        
+        readinessProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50053"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+          successThreshold: 1
+        
+        startupProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50053"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 12
+        
+        # Graceful shutdown
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+      
+      # Pod-level settings
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000

@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s  # Change from 5s to 15s (less aggressive)
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Gateway Service Metrics (keep as-is, just adjust interval)
+  - job_name: 'qubool-gateway'
+    static_configs:
+      - targets: ['gateway:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 10s  # Change from 5s to 10s
+    
+  # Optional: Add infrastructure monitoring
+  - job_name: 'infrastructure'
+    static_configs:
+      - targets: ['prometheus:9090']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    
+  # Keep your existing commented sections - uncomment when ready
+  # - job_name: 'qubool-auth'
+  #   static_configs:
+  #     - targets: ['auth:50051']
+  #   metrics_path: '/metrics'
+  
+  # - job_name: 'qubool-user'
+  #   static_configs:
+  #     - targets: ['user:50053']
+  #   metrics_path: '/metrics'

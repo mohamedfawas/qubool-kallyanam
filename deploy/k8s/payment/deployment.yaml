@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qubool-kallyanam-payment
+  namespace: qubool-kallyanam-production
+  labels:
+    app: qubool-kallyanam-payment
+    tier: backend
+    version: v1
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: qubool-kallyanam-payment
+  template:
+    metadata:
+      labels:
+        app: qubool-kallyanam-payment
+        tier: backend
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: payment
+        image: gcr.io/${PROJECT_ID}/qubool-kallyanam-payment:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 50055
+          name: grpc
+        - containerPort: 8081
+          name: http
+        env:
+        # Application Configuration
+        - name: CONFIG_PATH
+          value: "/app/configs/config.yaml"
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: environment
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: log-level
+        
+        # Database Configuration
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-host
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-password
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: db-port
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: payment-db-name
+        - name: DB_SSLMODE
+          value: "require"
+        
+        # Razorpay Configuration
+        - name: RAZORPAY_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: razorpay-key-id
+        - name: RAZORPAY_KEY_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: razorpay-key-secret
+        
+        # Gateway Configuration
+        - name: GATEWAY_ADDRESS
+          value: "https://${DOMAIN}"
+        
+        # Pub/Sub Configuration (replaces RabbitMQ)
+        - name: RABBITMQ_DSN
+          value: "disabled"
+        - name: PUBSUB_PROJECT_ID
+          value: "${PROJECT_ID}"
+        - name: PUBSUB_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: pubsub-topic
+        
+        # Tracing Configuration
+        - name: TRACING_ENABLED
+          value: "true"
+        - name: TRACING_SERVICE_NAME
+          value: "qubool-kallyanam-payment"
+        - name: TRACING_JAEGER_URL
+          value: "http://jaeger:4318"
+        
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        
+        livenessProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50055"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50055"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        
+        startupProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50055"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 12
+        
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+      
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000

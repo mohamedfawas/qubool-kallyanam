@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qubool-kallyanam-admin
+  namespace: qubool-kallyanam-production
+  labels:
+    app: qubool-kallyanam-admin
+    tier: backend
+    version: v1
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: qubool-kallyanam-admin
+  template:
+    metadata:
+      labels:
+        app: qubool-kallyanam-admin
+        tier: backend
+        version: v1
+      annotations:
+        prometheus.io/scrape: "false"  # Admin service doesn't expose metrics directly
+    spec:
+      containers:
+      - name: admin
+        image: gcr.io/${PROJECT_ID}/qubool-kallyanam-admin:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 50052
+          name: grpc
+        env:
+        # Application Configuration
+        - name: CONFIG_PATH
+          value: "/app/configs/config.yaml"
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: environment
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: log-level
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: jwt-secret
+        
+        # Service Dependencies (Admin calls Auth and User services)
+        - name: AUTH_SERVICE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: auth-service-address
+        - name: USER_SERVICE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: user-service-address
+        
+        # Resource Configuration
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        
+        # Health Checks
+        livenessProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50052"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50052"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        
+        startupProbe:
+          exec:
+            command: ["/bin/grpc_health_probe", "-addr=:50052"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 12
+        
+        # Graceful Shutdown
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+      
+      # Pod Configuration
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000

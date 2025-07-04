@@ -36,11 +36,6 @@ func (h *PaymentHandler) CreatePaymentOrder(ctx context.Context, req *paymentpb.
 	return h.paymentService.CreatePaymentOrder(ctx, userID, req.PlanId)
 }
 
-func (h *PaymentHandler) VerifyPayment(ctx context.Context, req *paymentpb.VerifyPaymentRequest) (*paymentpb.VerifyPaymentResponse, error) {
-	h.logger.Info("VerifyPayment request", "orderID", req.RazorpayOrderId)
-	return h.paymentService.VerifyPaymentByOrder(ctx, req.RazorpayOrderId, req.RazorpayPaymentId, req.RazorpaySignature)
-}
-
 func (h *PaymentHandler) GetSubscriptionStatus(ctx context.Context, req *paymentpb.GetSubscriptionStatusRequest) (*paymentpb.GetSubscriptionStatusResponse, error) {
 	userID := h.getUserIDFromContext(ctx)
 	if userID == "" {
@@ -92,4 +87,18 @@ func (h *PaymentHandler) getUserIDFromContext(ctx context.Context) string {
 	}
 
 	return userIDs[0]
+}
+
+func (h *PaymentHandler) VerifyPayment(ctx context.Context, req *paymentpb.VerifyPaymentRequest) (*paymentpb.VerifyPaymentResponse, error) {
+	h.logger.Info("VerifyPayment gRPC request",
+		"orderID", req.RazorpayOrderId,
+		"paymentID", req.RazorpayPaymentId)
+
+	// Call the existing service method (no user ID needed - extracted from payment record)
+	return h.paymentService.VerifyPayment(
+		ctx,
+		req.RazorpayOrderId,
+		req.RazorpayPaymentId,
+		req.RazorpaySignature,
+	)
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/metrics"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/validation"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/user"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
@@ -14,12 +15,14 @@ import (
 type Handler struct {
 	userClient *user.Client
 	logger     logging.Logger
+	metrics    *metrics.Metrics
 }
 
-func NewHandler(userClient *user.Client, logger logging.Logger) *Handler {
+func NewHandler(userClient *user.Client, logger logging.Logger, metrics *metrics.Metrics) *Handler {
 	return &Handler{
 		userClient: userClient,
 		logger:     logger,
+		metrics:    metrics,
 	}
 }
 

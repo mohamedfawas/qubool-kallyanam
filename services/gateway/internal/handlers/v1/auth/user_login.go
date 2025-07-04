@@ -48,6 +48,10 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	if success && accessToken != "" {
+		h.metrics.IncrementUserLogins()
+	}
+
 	response := LoginResponse{
 		Success:      success,
 		AccessToken:  accessToken,

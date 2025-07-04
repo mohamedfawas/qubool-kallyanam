@@ -5,6 +5,7 @@ import (
 
 	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/metrics"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/validation"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
 )
@@ -20,13 +21,15 @@ type RegisterRequest struct {
 type Handler struct {
 	authClient *auth.Client
 	logger     logging.Logger
+	metrics    *metrics.Metrics
 }
 
 // NewHandler creates a new auth handler
-func NewHandler(authClient *auth.Client, logger logging.Logger) *Handler {
+func NewHandler(authClient *auth.Client, logger logging.Logger, metrics *metrics.Metrics) *Handler {
 	return &Handler{
 		authClient: authClient,
 		logger:     logger,
+		metrics:    metrics,
 	}
 }
 
@@ -63,6 +66,10 @@ func (h *Handler) Register(c *gin.Context) {
 		h.logger.Error("Registration failed", "error", err)
 		pkghttp.Error(c, pkghttp.FromGRPCError(err))
 		return
+	}
+
+	if success {
+		h.metrics.IncrementUserRegistrations()
 	}
 
 	// Return success response with 202 Accepted status

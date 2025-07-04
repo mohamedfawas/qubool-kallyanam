@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qubool-kallyanam-production
+  labels:
+    name: qubool-kallyanam-production
+    environment: production
+    app: qubool-kallyanam

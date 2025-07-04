@@ -41,6 +41,18 @@ func (h *Handler) RecordMatchAction(c *gin.Context) {
 		return
 	}
 
+	if success {
+		if req.Action == "liked" {
+			h.metrics.IncrementMatchesLiked()
+
+			if isMutualMatch {
+				h.metrics.IncrementMutualMatches()
+			}
+		} else if req.Action == "passed" {
+			h.metrics.IncrementMatchesPassed()
+		}
+	}
+
 	pkghttp.Success(c, http.StatusOK, message, gin.H{
 		"success":         success,
 		"is_mutual_match": isMutualMatch,

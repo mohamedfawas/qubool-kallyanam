@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/metrics"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/payment"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
 )
@@ -15,23 +16,19 @@ import (
 type Handler struct {
 	paymentClient *payment.Client
 	logger        logging.Logger
+	metrics       *metrics.Metrics
 }
 
-func NewHandler(paymentClient *payment.Client, logger logging.Logger) *Handler {
+func NewHandler(paymentClient *payment.Client, logger logging.Logger, metrics *metrics.Metrics) *Handler {
 	return &Handler{
 		paymentClient: paymentClient,
 		logger:        logger,
+		metrics:       metrics,
 	}
 }
 
 type CreateOrderRequest struct {
 	PlanID string `json:"plan_id" binding:"required"`
-}
-
-type VerifyPaymentRequest struct {
-	RazorpayOrderID   string `json:"razorpay_order_id" binding:"required"`
-	RazorpayPaymentID string `json:"razorpay_payment_id" binding:"required"`
-	RazorpaySignature string `json:"razorpay_signature" binding:"required"`
 }
 
 // CreateOrder - Creates a payment order via payment service
@@ -60,6 +57,10 @@ func (h *Handler) CreateOrder(c *gin.Context) {
 		return
 	}
 
+	if success {
+		h.metrics.IncrementPaymentOrdersCreated()
+	}
+
 	response := gin.H{
 		"success": success,
 		"message": message,
@@ -75,102 +76,6 @@ func (h *Handler) CreateOrder(c *gin.Context) {
 	}
 
 	pkghttp.Success(c, http.StatusOK, message, response)
-}
-
-// VerifyPayment - Verifies payment via payment service
-func (h *Handler) VerifyPayment(c *gin.Context) {
-	h.logger.Info("VerifyPayment endpoint called")
-
-	userID, exists := c.Get(middleware.UserIDKey)
-	if !exists {
-		h.logger.Debug("Missing user ID in context")
-		pkghttp.Error(c, pkghttp.NewUnauthorized("Authentication required", nil))
-		return
-	}
-
-	var req VerifyPaymentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		h.logger.Error("Invalid request body", "error", err)
-		pkghttp.Error(c, pkghttp.NewBadRequest("Invalid request format", err))
-		return
-	}
-
-	success, message, subscription, err := h.paymentClient.VerifyPayment(
-		c.Request.Context(),
-		req.RazorpayOrderID,
-		req.RazorpayPaymentID,
-		req.RazorpaySignature,
-	)
-
-	if err != nil {
-		h.logger.Error("Payment verification failed", "error", err, "userID", userID)
-		pkghttp.Error(c, pkghttp.FromGRPCError(err))
-		return
-	}
-
-	if !success {
-		pkghttp.Error(c, pkghttp.NewBadRequest(message, nil))
-		return
-	}
-
-	response := gin.H{
-		"success": success,
-		"message": message,
-	}
-
-	if subscription != nil {
-		response["subscription"] = gin.H{
-			"id":         subscription.Id,
-			"plan_id":    subscription.PlanId,
-			"status":     subscription.Status,
-			"start_date": subscription.StartDate.AsTime(),
-			"end_date":   subscription.EndDate.AsTime(),
-			"amount":     subscription.Amount,
-			"currency":   subscription.Currency,
-			"is_active":  subscription.IsActive,
-		}
-	}
-
-	h.logger.Info("Payment verified successfully", "userID", userID)
-	pkghttp.Success(c, http.StatusOK, message, response)
-}
-
-// VerifyPaymentQuery - Handle verification via query parameters (for redirects)
-func (h *Handler) VerifyPaymentQuery(c *gin.Context) {
-	h.logger.Info("VerifyPaymentQuery endpoint called")
-
-	// Extract payment parameters from Razorpay redirect
-	orderID := c.Query("razorpay_order_id")
-	paymentID := c.Query("razorpay_payment_id")
-	signature := c.Query("razorpay_signature")
-
-	if orderID == "" || paymentID == "" || signature == "" {
-		h.logger.Error("Missing payment parameters")
-		// ✅ Clean redirect - only error info
-		c.Redirect(http.StatusFound, "http://localhost:8081/payment/failed?error=missing_parameters")
-		return
-	}
-
-	// ✅ IMMEDIATE VERIFICATION - no user context needed (order provides context)
-	success, _, _, err := h.paymentClient.VerifyPayment(
-		c.Request.Context(),
-		orderID,
-		paymentID,
-		signature,
-	)
-
-	if err != nil || !success {
-		h.logger.Error("Payment verification failed", "error", err, "orderID", orderID)
-		// ✅ Clean redirect - only order ID (safe to expose)
-		c.Redirect(http.StatusFound, "http://localhost:8081/payment/failed?order_id="+orderID)
-		return
-	}
-
-	h.logger.Info("Payment verified successfully", "orderID", orderID)
-
-	// ✅ CLEAN SUCCESS REDIRECT - no sensitive payment details in URL
-	successURL := "http://localhost:8081/payment/success?order_id=" + orderID
-	c.Redirect(http.StatusFound, successURL)
 }
 
 // GetSubscription - Gets current subscription status
@@ -289,6 +194,50 @@ func (h *Handler) PaymentStatus(c *gin.Context) {
 		"status":  "ready",
 		"service": "payment",
 	})
+}
+
+// VerifyPayment handles payment verification callbacks from Razorpay
+func (h *Handler) VerifyPayment(c *gin.Context) {
+	h.logger.Info("VerifyPayment endpoint called")
+
+	// Extract payment parameters from Razorpay callback
+	orderID := c.Query("razorpay_order_id")
+	paymentID := c.Query("razorpay_payment_id")
+	signature := c.Query("razorpay_signature")
+
+	if orderID == "" || paymentID == "" || signature == "" {
+		h.logger.Error("Missing payment parameters")
+		c.Redirect(http.StatusFound, "http://localhost:8081/payment/failed?error=missing_parameters")
+		return
+	}
+
+	// Call payment service through gRPC
+	success, message, subscription, err := h.paymentClient.VerifyPayment(
+		c.Request.Context(),
+		orderID,
+		paymentID,
+		signature,
+	)
+
+	if err != nil {
+		h.logger.Error("Payment verification gRPC call failed", "error", err, "orderID", orderID)
+		c.Redirect(http.StatusFound, "http://localhost:8081/payment/failed?order_id="+orderID+"&error=service_error")
+		return
+	}
+
+	if !success {
+		h.logger.Error("Payment verification failed", "message", message, "orderID", orderID)
+		c.Redirect(http.StatusFound, "http://localhost:8081/payment/failed?order_id="+orderID+"&error=verification_failed")
+		return
+	}
+
+	// // Track successful verification
+	// if h.metrics != nil {
+	// 	h.metrics.IncrementPaymentVerificationsSuccessful()
+	// }
+
+	h.logger.Info("Payment verified successfully", "orderID", orderID, "subscriptionID", subscription.Id)
+	c.Redirect(http.StatusFound, "http://localhost:8081/payment/success?order_id="+orderID)
 }
 
 func (h *Handler) RedirectToPlans(c *gin.Context) {

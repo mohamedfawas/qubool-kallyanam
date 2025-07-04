@@ -17,4 +17,6 @@
 **/*.lock.json
 **/*.lock.yaml
 **/*.lock.yml
+.env.example
+.env
 

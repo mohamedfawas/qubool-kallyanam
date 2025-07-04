@@ -115,8 +115,11 @@ func LoadConfig(path string) (*Config, error) {
 		port, _ := strconv.Atoi(smtpPort)
 		config.Email.SMTPPort = port
 	}
-	if emailPass := os.Getenv("EMAIL_PASSWORD"); emailPass != "" {
-		config.Email.Password = emailPass
+	if smtpUsername := os.Getenv("SMTP_USERNAME"); smtpUsername != "" {
+		config.Email.Username = smtpUsername
+	}
+	if smtpPassword := os.Getenv("SMTP_PASSWORD"); smtpPassword != "" {
+		config.Email.Password = smtpPassword
 	}
 
 	if adminEmail := os.Getenv("ADMIN_DEFAULT_EMAIL"); adminEmail != "" {

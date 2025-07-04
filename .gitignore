@@ -1,4 +1,5 @@
 .env
+.env.example
 auth.env
 user.env
 chat.env
@@ -23,3 +24,5 @@ services/user/configs/config.yaml
 services/chat/configs/config.yaml
 services/admin/configs/config.yaml
 services/gateway/configs/config.yaml
+
+.dockerignore

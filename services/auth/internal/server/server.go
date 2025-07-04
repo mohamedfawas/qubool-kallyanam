@@ -193,16 +193,13 @@ func createLoggingInterceptor(logger logging.Logger) grpc.UnaryServerInterceptor
 		return resp, err
 	}
 }
-
 func createErrorInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		resp, err := handler(ctx, req)
 		if err != nil {
-
 			if _, ok := status.FromError(err); ok {
 				return resp, err
 			}
-
 			return resp, status.Error(codes.Internal, "Internal server error")
 		}
 		return resp, nil

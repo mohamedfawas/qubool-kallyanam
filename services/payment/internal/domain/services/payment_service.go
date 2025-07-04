@@ -137,130 +137,6 @@ func (s *PaymentService) CreatePaymentOrder(ctx context.Context, userID, planID 
 	}, nil
 }
 
-func (s *PaymentService) VerifyPayment(ctx context.Context, userID, razorpayOrderID, razorpayPaymentID, razorpaySignature string) (*paymentpb.VerifyPaymentResponse, error) {
-	s.logger.Info("Verifying payment", "userID", userID, "orderID", razorpayOrderID)
-
-	// Verify signature with Razorpay
-	attributes := map[string]interface{}{
-		"razorpay_order_id":   razorpayOrderID,
-		"razorpay_payment_id": razorpayPaymentID,
-		"razorpay_signature":  razorpaySignature,
-	}
-
-	if err := s.razorpayService.VerifyPaymentSignature(attributes); err != nil {
-		s.logger.Error("Payment signature verification failed", "error", err)
-		return &paymentpb.VerifyPaymentResponse{
-			Success: false,
-			Message: "Payment verification failed",
-			Error:   "SIGNATURE_VERIFICATION_FAILED",
-		}, nil
-	}
-
-	// Get payment record
-	payment, err := s.paymentRepo.GetPaymentByOrderID(ctx, razorpayOrderID)
-	if err != nil {
-		s.logger.Error("Failed to get payment record", "error", err)
-		return &paymentpb.VerifyPaymentResponse{
-			Success: false,
-			Message: "Payment not found",
-			Error:   "PAYMENT_NOT_FOUND",
-		}, nil
-	}
-
-	// Check if payment is already processed
-	if payment.Status == models.PaymentStatusSuccess {
-		s.logger.Info("Payment already processed", "orderID", razorpayOrderID)
-		return &paymentpb.VerifyPaymentResponse{
-			Success: false,
-			Message: "Payment already processed",
-			Error:   "DUPLICATE_PAYMENT",
-		}, nil
-	}
-
-	// Verify user ownership
-	userUUID, _ := uuid.Parse(userID)
-	if payment.UserID != userUUID {
-		s.logger.Error("Unauthorized payment access", "userID", userID, "paymentUserID", payment.UserID)
-		return &paymentpb.VerifyPaymentResponse{
-			Success: false,
-			Message: "Unauthorized access",
-			Error:   "UNAUTHORIZED_ACCESS",
-		}, nil
-	}
-
-	// Process payment and create subscription in transaction
-	var subscription *models.Subscription
-	err = s.paymentRepo.WithTx(ctx, func(txCtx context.Context) error {
-		// Update payment record
-		paymentIDStr := razorpayPaymentID
-		signatureStr := razorpaySignature
-		payment.RazorpayPaymentID = &paymentIDStr
-		payment.RazorpaySignature = &signatureStr
-		payment.Status = models.PaymentStatusSuccess
-		payment.UpdatedAt = time.Now()
-
-		if err := s.paymentRepo.UpdatePayment(txCtx, payment); err != nil {
-			return fmt.Errorf("failed to update payment: %w", err)
-		}
-
-		// Get plan details
-		planID := constants.DefaultPlanID // or extract from payment record if stored
-		plan, exists := s.plansConfig.GetPlan(planID)
-		if !exists {
-			return fmt.Errorf("plan not found: %s", planID)
-		}
-
-		// Create subscription
-		now := time.Now()
-		endDate := now.AddDate(0, 0, plan.DurationDays)
-
-		subscription = &models.Subscription{
-			UserID:    userUUID,
-			PlanID:    plan.ID,
-			Status:    models.SubscriptionStatusActive,
-			StartDate: &now,
-			EndDate:   &endDate,
-			Amount:    plan.Amount,
-			Currency:  plan.Currency,
-			PaymentID: &payment.ID,
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
-
-		return s.paymentRepo.CreateSubscription(txCtx, subscription)
-	})
-
-	if err != nil {
-		s.logger.Error("Failed to process payment", "error", err)
-		return &paymentpb.VerifyPaymentResponse{
-			Success: false,
-			Message: "Failed to process payment",
-			Error:   "PAYMENT_PROCESSING_FAILED",
-		}, nil
-	}
-
-	// Publish subscription activated event
-	s.publishSubscriptionEvent(userID, "subscription.activated", subscription)
-
-	// Convert subscription to protobuf
-	subscriptionData := &paymentpb.SubscriptionData{
-		Id:        subscription.ID.String(),
-		PlanId:    subscription.PlanID,
-		Status:    string(subscription.Status),
-		StartDate: timestamppb.New(*subscription.StartDate),
-		EndDate:   timestamppb.New(*subscription.EndDate),
-		Amount:    subscription.Amount,
-		Currency:  subscription.Currency,
-		IsActive:  subscription.IsActive(),
-	}
-
-	return &paymentpb.VerifyPaymentResponse{
-		Success:      true,
-		Message:      "Payment verified and subscription activated",
-		Subscription: subscriptionData,
-	}, nil
-}
-
 func (s *PaymentService) GetSubscriptionStatus(ctx context.Context, userID string) (*paymentpb.GetSubscriptionStatusResponse, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
@@ -493,7 +369,7 @@ func (s *PaymentService) GetPaymentDetailsByOrderID(ctx context.Context, razorpa
 }
 
 // VerifyPaymentByOrder verifies payment without requiring user ID - gets user context from payment record
-func (s *PaymentService) VerifyPaymentByOrder(ctx context.Context, razorpayOrderID, razorpayPaymentID, razorpaySignature string) (*paymentpb.VerifyPaymentResponse, error) {
+func (s *PaymentService) VerifyPayment(ctx context.Context, razorpayOrderID, razorpayPaymentID, razorpaySignature string) (*paymentpb.VerifyPaymentResponse, error) {
 	s.logger.Info("Verifying payment by order", "orderID", razorpayOrderID)
 
 	// ✅ Step 1: Verify signature with Razorpay (security check)

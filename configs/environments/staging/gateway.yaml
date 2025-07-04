@@ -10,3 +10,10 @@ services:
     address: "payment-service:50055"
   admin:                              
     address: "admin-service:50052"    
+
+tracing:
+  enabled: true
+  service_name: "qubool-gateway"
+  environment: "development"
+  jaeger_url: "http://localhost:14268/api/traces"
+  sample_rate: 1.0

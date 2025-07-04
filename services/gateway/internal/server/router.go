@@ -5,12 +5,14 @@ import (
 
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/metrics"
 	adminHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/admin"
 	authHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/auth"
 	chatHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/chat"
 	paymentHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/payment"
 	userHandler "github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/handlers/v1/user"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // SetupRouter configures all routes and middleware for the server.
@@ -22,17 +24,23 @@ func SetupRouter(
 	paymentH *paymentHandler.Handler,
 	adminH *adminHandler.Handler,
 	auth *middleware.Auth,
+	metricsRegistry *metrics.Metrics,
 	logger logging.Logger,
 ) {
 	// Global middleware
 	r.Use(
-		gin.Recovery(),                   // recover from panics
+		gin.Recovery(), // recover from panics
+		middleware.Tracing("qubool-gateway"),
+		middleware.EnrichTrace(),
 		middleware.ResponseTiming(),      // add response time headers
 		middleware.SetupCORS(),           // CORS support for Razorpay
 		middleware.SecurityHeaders(),     // Security headers
 		middleware.RequestLogger(logger), // request logging
-		middleware.ErrorHandler(),        // unified error handling
+		middleware.Metrics(metricsRegistry),
+		middleware.ErrorHandler(), // unified error handling
 	)
+
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// API v1 base group
 	v1 := r.Group("/api/v1")
@@ -132,7 +140,7 @@ func registerChatRoutes(rg *gin.RouterGroup, h *chatHandler.Handler, auth *middl
 func registerPaymentRoutes(rg *gin.RouterGroup, h *paymentHandler.Handler, auth *middleware.Auth) {
 	// Public status endpoint
 	rg.GET("/status", h.PaymentStatus)
-	rg.GET("/verify", h.VerifyPaymentQuery)
+	rg.GET("/verify", h.VerifyPayment)
 
 	// Protected API endpoints
 	protected := rg.Group("/")
@@ -142,7 +150,6 @@ func registerPaymentRoutes(rg *gin.RouterGroup, h *paymentHandler.Handler, auth 
 	)
 	{
 		protected.POST("/create-order", h.CreateOrder)
-		protected.POST("/verify", h.VerifyPayment)
 		protected.GET("/subscription", h.GetSubscription)
 		protected.GET("/history", h.GetPaymentHistory)
 	}

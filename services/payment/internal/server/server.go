@@ -150,6 +150,7 @@ func setupHTTPRoutes(router *gin.Engine, handler *httpv1.HTTPHandler) {
 		paymentGroup.GET("/checkout", handler.ShowPaymentPage)
 		paymentGroup.GET("/success", handler.ShowSuccessPage)
 		paymentGroup.GET("/failed", handler.ShowFailedPage)
+		paymentGroup.GET("/verify", handler.VerifyPaymentCallback)
 	}
 }
 

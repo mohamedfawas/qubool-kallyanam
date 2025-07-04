@@ -10,9 +10,6 @@ service PaymentService {
   // Create a payment order for subscription
   rpc CreatePaymentOrder(CreatePaymentOrderRequest) returns (CreatePaymentOrderResponse);
   
-  // Verify payment and activate subscription
-  rpc VerifyPayment(VerifyPaymentRequest) returns (VerifyPaymentResponse);
-  
   // Get subscription status
   rpc GetSubscriptionStatus(GetSubscriptionStatusRequest) returns (GetSubscriptionStatusResponse);
   
@@ -24,6 +21,8 @@ service PaymentService {
   
    // Add simple redirect-based payment
    rpc CreatePaymentURL(CreatePaymentURLRequest) returns (CreatePaymentURLResponse);
+
+   rpc VerifyPayment(VerifyPaymentRequest) returns (VerifyPaymentResponse);
 }
 
 message CreatePaymentOrderRequest {
@@ -43,19 +42,6 @@ message PaymentOrderData {
   int64 amount = 3; // in paise
   string currency = 4;
   string plan_name = 5;
-}
-
-message VerifyPaymentRequest {
-  string razorpay_order_id = 1;
-  string razorpay_payment_id = 2;
-  string razorpay_signature = 3;
-}
-
-message VerifyPaymentResponse {
-  bool success = 1;
-  string message = 2;
-  string error = 3;
-  SubscriptionData subscription = 4;
 }
 
 message GetSubscriptionStatusRequest {
@@ -131,4 +117,17 @@ message CreatePaymentURLResponse {
   bool success = 1;
   string message = 2;
   string payment_url = 3;
+}
+
+message VerifyPaymentResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  SubscriptionData subscription = 4;
+}
+
+message VerifyPaymentRequest {
+  string razorpay_order_id = 1;
+  string razorpay_payment_id = 2;
+  string razorpay_signature = 3;
 }

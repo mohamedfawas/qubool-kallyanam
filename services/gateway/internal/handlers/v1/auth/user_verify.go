@@ -40,6 +40,10 @@ func (h *Handler) Verify(c *gin.Context) {
 		return
 	}
 
+	if success {
+		h.metrics.IncrementUserVerifications()
+	}
+
 	// Return success response with 201 Created status
 	pkghttp.Success(c, http.StatusCreated, message, gin.H{
 		"success": success,

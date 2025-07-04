@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qubool-kallyanam-config
+  namespace: qubool-kallyanam-production
+  labels:
+    app: qubool-kallyanam
+    environment: production
+data:
+  # Environment Configuration
+  environment: "production"
+  log-level: "info"
+  
+  # Service Discovery - Internal K8s Service Addresses
+  auth-service-address: "qubool-kallyanam-auth-service:50051"
+  user-service-address: "qubool-kallyanam-user-service:50053"
+  chat-service-address: "qubool-kallyanam-chat-service:50054"
+  payment-service-address: "qubool-kallyanam-payment-service:50055"
+  admin-service-address: "qubool-kallyanam-admin-service:50052"
+  
+  # JWT Configuration
+  jwt-issuer: "qubool-kallyanam"
+  jwt-access-token-minutes: "15"
+  jwt-refresh-token-days: "7"
+  
+  # Google Cloud Configuration
+  gcp-project-id: "${PROJECT_ID}"
+  gcp-region: "${REGION}"
+  
+  # Cloud Storage Configuration
+  gcs-bucket-name: "${PROJECT_ID}-user-images"
+  gcs-public-url: "https://storage.googleapis.com/${PROJECT_ID}-user-images"
+  
+  # Pub/Sub Configuration (replaces RabbitMQ)
+  pubsub-topic: "qubool-events"
+  pubsub-subscription: "qubool-events-sub"
+  
+  # Database Configuration (non-sensitive)
+  db-port: "5432"
+  db-sslmode: "require"
+  
+  # Database Names
+  auth-db-name: "qubool_kallyanam_auth"
+  user-db-name: "qubool_kallyanam_user"
+  payment-db-name: "qubool_kallyanam_payment"
+  
+  # Chat Database Configuration - Firestore for production
+  chat-database-type: "firestore"
+  firestore-database: "qubool-kallyanam-chat"
+  
+  # Redis Configuration (non-sensitive)
+  redis-port: "6379"
+  
+  # Application URLs
+  gateway-public-url: "https://${DOMAIN}"
+  payment-service-url: "http://qubool-kallyanam-payment-service:8081"
+  
+  # Feature Flags
+  tracing-enabled: "true"
+  metrics-enabled: "true"
+  pubsub-enabled: "true"
+  
+  # Tracing Configuration
+  tracing-service-name-prefix: "qubool-kallyanam"
+  jaeger-endpoint: "http://jaeger:4318"
+  
+  # Monitoring Configuration
+  prometheus-scrape-enabled: "true"
+  prometheus-scrape-path: "/metrics"
+  prometheus-scrape-port: "8080"
+  
+  # Security Configuration
+  cors-allowed-origins: "https://${DOMAIN},https://www.${DOMAIN}"
+  
+  # Storage Configuration
+  storage-provider: "gcs"
+  storage-region: "${REGION}"
+  storage-use-ssl: "true"
+  
+  # Performance Configuration
+  grpc-keepalive-time: "30s"
+  grpc-keepalive-timeout: "5s"
+  http-read-timeout: "30s"
+  http-write-timeout: "30s"
+  http-idle-timeout: "120s"
+  
+  # Rate Limiting Configuration
+  rate-limit-enabled: "true"
+  rate-limit-requests-per-minute: "100"
+  
+  # Cache Configuration
+  cache-ttl-seconds: "3600"
+  session-timeout-minutes: "30"

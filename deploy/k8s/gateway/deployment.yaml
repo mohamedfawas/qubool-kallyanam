@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qubool-kallyanam-gateway
+  namespace: qubool-kallyanam-production
+  labels:
+    app: qubool-kallyanam-gateway
+    tier: frontend
+    version: v1
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: qubool-kallyanam-gateway
+  template:
+    metadata:
+      labels:
+        app: qubool-kallyanam-gateway
+        tier: frontend
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: gateway
+        image: gcr.io/${PROJECT_ID}/qubool-kallyanam-gateway:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # Service Addresses  
+        - name: AUTH_SERVICE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: auth-service-address
+        - name: USER_SERVICE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: user-service-address
+        - name: CHAT_SERVICE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: chat-service-address
+        - name: PAYMENT_SERVICE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: payment-service-address
+        - name: ADMIN_SERVICE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: admin-service-address
+        
+        # Application Configuration
+        - name: CONFIG_PATH
+          value: "/app/configs/config.yaml"
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: environment
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: qubool-kallyanam-config
+              key: log-level
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: qubool-kallyanam-secrets
+              key: jwt-secret
+        
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 12
+        
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+      
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000

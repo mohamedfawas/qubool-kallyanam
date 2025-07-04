@@ -9,6 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/auth/jwt"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/metrics"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/tracing"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/admin" // ✅ Move here
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/auth"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/chat"
@@ -36,6 +38,8 @@ type Server struct {
 	adminClient   *admin.Client
 	jwtManager    *jwt.Manager
 	auth          *middleware.Auth
+	metrics       *metrics.Metrics
+	tracer        tracing.Tracer
 }
 
 // NewServer creates a new server instance
@@ -47,6 +51,25 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 
 	// Create a new Gin router instance for handling incoming HTTP requests
 	router := gin.New()
+
+	// Initialize metrics registry
+	metricsRegistry := metrics.New("gateway")
+
+	// Initialize tracing
+	tracingConfig := tracing.Config{
+		Enabled:     cfg.Tracing.Enabled,
+		ServiceName: "qubool-gateway",
+		Environment: cfg.Environment,
+		JaegerURL:   cfg.Tracing.JaegerURL,
+		SampleRate:  cfg.Tracing.SampleRate,
+	}
+
+	tracer, err := tracing.NewTracer(tracingConfig)
+	if err != nil {
+		logger.Error("Failed to initialize tracer", "error", err)
+		// Continue without tracing instead of failing
+		tracer, _ = tracing.NewTracer(tracing.Config{Enabled: false})
+	}
 
 	// Initialize the authentication service client using the Auth service address from config
 	authClient, err := auth.NewClient(cfg.Services.Auth.Address)
@@ -115,6 +138,8 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 		adminClient:   adminClient,
 		jwtManager:    jwtManager,
 		auth:          auth,
+		metrics:       metricsRegistry,
+		tracer:        tracer,
 	}
 
 	// Register all API routes
@@ -127,10 +152,10 @@ func NewServer(cfg *config.Config, logger logging.Logger) (*Server, error) {
 func (s *Server) setupRoutes() {
 	s.router.Static("/static", "./static")
 
-	authHandler := authHandler.NewHandler(s.authClient, s.logger)
-	userHandler := userHandler.NewHandler(s.userClient, s.logger)
-	chatHandler := chatHandler.NewHandler(s.chatClient, s.userClient, s.logger)
-	paymentHandler := paymentHandler.NewHandler(s.paymentClient, s.logger)
+	authHandler := authHandler.NewHandler(s.authClient, s.logger, s.metrics)
+	userHandler := userHandler.NewHandler(s.userClient, s.logger, s.metrics)
+	chatHandler := chatHandler.NewHandler(s.chatClient, s.userClient, s.logger, s.metrics)
+	paymentHandler := paymentHandler.NewHandler(s.paymentClient, s.logger, s.metrics)
 	adminHandler := adminHandler.NewHandler(s.adminClient, s.logger)
 	SetupRouter(s.router,
 		authHandler,
@@ -139,6 +164,7 @@ func (s *Server) setupRoutes() {
 		paymentHandler,
 		adminHandler,
 		s.auth,
+		s.metrics,
 		s.logger)
 }
 
@@ -166,6 +192,10 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	if s.adminClient != nil {
 		s.adminClient.Close()
+	}
+	// Shutdown tracer
+	if s.tracer != nil {
+		s.tracer.Shutdown(ctx)
 	}
 	return s.httpServer.Shutdown(ctx)
 }

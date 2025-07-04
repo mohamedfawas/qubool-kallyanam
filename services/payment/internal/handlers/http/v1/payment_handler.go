@@ -226,3 +226,35 @@ func (h *HTTPHandler) ShowFailedPage(c *gin.Context) {
 func formatAmount(amountInPaise int64) string {
 	return fmt.Sprintf("%.0f", float64(amountInPaise)/100)
 }
+
+func (h *HTTPHandler) VerifyPaymentCallback(c *gin.Context) {
+	h.logger.Info("VerifyPaymentCallback endpoint called")
+
+	// Extract payment parameters from Razorpay redirect
+	orderID := c.Query("razorpay_order_id")
+	paymentID := c.Query("razorpay_payment_id")
+	signature := c.Query("razorpay_signature")
+
+	if orderID == "" || paymentID == "" || signature == "" {
+		h.logger.Error("Missing payment parameters")
+		c.Redirect(http.StatusFound, "/payment/failed?error=missing_parameters")
+		return
+	}
+
+	// Verify payment using the renamed method
+	response, err := h.paymentService.VerifyPayment(
+		c.Request.Context(),
+		orderID,
+		paymentID,
+		signature,
+	)
+
+	if err != nil || !response.Success {
+		h.logger.Error("Payment verification failed", "error", err, "orderID", orderID)
+		c.Redirect(http.StatusFound, "/payment/failed?order_id="+orderID)
+		return
+	}
+
+	h.logger.Info("Payment verified successfully", "orderID", orderID)
+	c.Redirect(http.StatusFound, "/payment/success?order_id="+orderID)
+}

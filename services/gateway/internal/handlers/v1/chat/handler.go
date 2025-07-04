@@ -9,6 +9,7 @@ import (
 	userpb "github.com/mohamedfawas/qubool-kallyanam/api/proto/user/v1"
 	pkghttp "github.com/mohamedfawas/qubool-kallyanam/pkg/http"
 	"github.com/mohamedfawas/qubool-kallyanam/pkg/logging"
+	"github.com/mohamedfawas/qubool-kallyanam/pkg/metrics"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/chat"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/clients/user"
 	"github.com/mohamedfawas/qubool-kallyanam/services/gateway/internal/middleware"
@@ -18,10 +19,11 @@ type Handler struct {
 	chatClient *chat.Client
 	userClient *user.Client
 	logger     logging.Logger
+	metrics    *metrics.Metrics
 	hub        *Hub
 }
 
-func NewHandler(chatClient *chat.Client, userClient *user.Client, logger logging.Logger) *Handler {
+func NewHandler(chatClient *chat.Client, userClient *user.Client, logger logging.Logger, metrics *metrics.Metrics) *Handler {
 	hub := NewHub(logger)
 
 	// Start the hub in a separate goroutine
@@ -33,6 +35,7 @@ func NewHandler(chatClient *chat.Client, userClient *user.Client, logger logging
 		chatClient: chatClient,
 		userClient: userClient,
 		logger:     logger,
+		metrics:    metrics,
 		hub:        hub,
 	}
 }
@@ -144,6 +147,8 @@ func (h *Handler) CreateConversation(c *gin.Context) {
 		pkghttp.Error(c, pkghttp.FromGRPCError(err))
 		return
 	}
+
+	h.metrics.IncrementConversationsCreated()
 
 	// Get recipient's basic profile information
 	recipientProfile, err := h.userClient.GetBasicProfile(c.Request.Context(), recipientUUID)
